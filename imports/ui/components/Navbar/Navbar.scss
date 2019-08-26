@@ -1,0 +1,22 @@
+.navbar {
+  background-color: #444;
+  * {
+    :hover,
+    :active {
+      text-decoration: none;
+    }
+  }
+  a {
+    color: #666;
+  }
+  .active {
+    color: #007bff;
+  }
+  .navbar-brand a {
+    color: #666;
+  }
+  .dropdown-item:active {
+    color: #212529;
+    background-color: #fff;
+  }
+}

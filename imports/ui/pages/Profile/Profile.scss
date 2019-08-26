@@ -1,0 +1,15 @@
+.profile-page {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  // height: 80vh;
+  h1 {
+    font-size: 44px;
+    color: #333;
+  }
+  .crackRatesTable {
+    margin-top:1em;
+    width:60%;
+  }
+}

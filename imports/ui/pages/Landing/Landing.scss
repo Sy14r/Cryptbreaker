@@ -1,0 +1,52 @@
+.landing-page {
+  margin-top:-3em;
+  margin-bottom:2%;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  // height: 50em;
+  font-size: 44px;
+  h1 {
+    color: #333;
+  }
+  .hashTable {
+    width:75%;
+    top:1em;
+  }
+  .hashCrackJobsTable {
+    width:75%;
+    top:1em;
+    margin-top:1em;
+  }
+  .Card {
+    background-color: white;
+    padding: 32px;
+    width: 33%;
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-start;
+    box-shadow: 0 15px 30px 0 rgba(0, 0, 0, 0.11),
+      0 5px 15px 0 rgba(0, 0, 0, 0.08);
+    box-sizing: border-box;
+  }
+  .ChartCardFullHeight {
+    background-color: white;
+    padding: 32px;
+    margin-left:.25em;
+    margin-right:.25em;
+    width: 30%;
+    height:100%;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    box-shadow: 0 15px 30px 0 rgba(0, 0, 0, 0.11),
+      0 5px 15px 0 rgba(0, 0, 0, 0.08);
+    box-sizing: border-box;
+  }
+  .break {
+    flex-basis: 100%;
+    height: 0;
+  }
+}

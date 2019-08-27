@@ -1042,11 +1042,18 @@ sudo reboot`;
                                                 Bucket: `${awsSettings.bucketName}`, // pass your bucket name
                                                 Key: `${randomVal}.${type}.credentials`, 
                                             };
-                                            s3.deleteObject(params, function(err, data) {
-                                                if (err) console.log(err, err.stack); // an error occurred
+                                            s3.deleteObject(params, function(err2, data2) {
+                                                if (err2) console.log(err2, err2.stack); // an error occurred
                                                 else {
                                                     bound(() => {
-                                                        HashCrackJobs.remove({uuid:randomVal})
+                                                        // Here we have the outer data being what we want
+                                                        if(err.code == "MaxSpotInstanceCountExceeded") {
+                                                            console.log("Need to tell user that they need to request spot instances of this type for all regions that they can")
+                                                            HashCrackJobs.update({uuid:randomVal},{$set:{'status':'Job Failed - Need to Configure Spot Instances in AWS (Click for Details)'}})
+                                                        } else {
+                                                            console.log(`New Error! ${JSON.stringify(err)}`)
+                                                            HashCrackJobs.remove({uuid:randomVal})
+                                                        }
                                                     })
                                                 }   
                                               });  

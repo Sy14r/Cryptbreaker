@@ -550,7 +550,7 @@ function checkForCrackResults() {
         let awsSettings = AWSCOLLECTION.findOne({'type':'settings'})
 
         // For each of the submittedNotComplete check to see if the potfile exists for the correcponding UUID
-        let submittedNotComplete = HashCrackJobs.find({'status':{$ne:'Job Complete'}}).fetch()
+        let submittedNotComplete = HashCrackJobs.find({$and:[{'status':{$ne:'Job Complete'}},{'status':{$not:/^Job Failed/}}]}).fetch()
         let params = {}
         _.each(submittedNotComplete, (job) => {
             // First check if the last spotRequest status was 

@@ -11,6 +11,8 @@ import CustomToolbarSelect from "./CustomToolbarSelect";
 import ReactDOM from 'react-dom';
 import { AWSCOLLECTION } from '/imports/api/aws/aws.js'
 import Spinner from '/imports/ui/components/Spinner';
+import Swal from 'sweetalert2'
+
 
 import './Landing.scss';
 
@@ -358,6 +360,37 @@ class Landing extends React.Component {
         filter:true,
         print:false,
         viewColumns:false,
+        onRowClick: (rowData, rowState) => {
+          // let _id = rowData[5]
+          // this.props.history.push({
+          //     pathname: `/issue/${_id}`,
+          //     state: {issue: data[rowState.rowIndex]}
+          //   })
+          // console.log(rowData)
+          if(rowData[1].toLowerCase().includes("configure spot instances")) {
+            console.log("REDIRECT HERE")
+            /* From AWS:
+            
+            By default, there is an account limit of 20 Spot Instances per Region. If you terminate your Spot Instance but do not cancel the request, the request counts against this limit until Amazon EC2 detects the termination and closes the request.
+
+            Spot Instance limits are dynamic. When your account is new, your limit might be lower than 20 to start, but can increase over time. In addition, your account might have limits on specific Spot Instance types. If you submit a Spot Instance request and you receive the error Max spot instance count exceeded, you can complete the AWS Support Center Create case form to request a Spot Instance limit increase. For Limit type, choose EC2 Spot Instances. For more information, see Amazon EC2 Service Limits.
+            */
+           Swal.fire({
+            title: 'Spot Request Limits',
+            type: 'info',
+            animation:false,
+            html: 'Spot Instance limits are dynamic. When your account is new, your limit might be lower than 20 to start, but can increase over time. In addition,'+
+                  ' your account might have limits on specific Spot Instance types. If you submit a Spot Instance request and you receive the error Max spot instance'+
+                  ' count exceeded, you can complete the AWS Support Center Create case form to request a Spot Instance limit increase. For Limit type, choose EC2 Spot'+
+                  ' Instances. For more information, see Amazon EC2 Service Limits.<br><br>'+
+                  `In order for this request to work you will need to sign into your AWS console, click 'Support' in the top right and 'Support Center'`+
+                  `Then 'Create case' and choose 'Service Limit Increase'. For 'Limit Type' choose 'EC2 Spot Instances' then request the each of the regions and choose instance `+
+                  `type of ${rowData[3]} and choose a limit value of something greater than 0. Do this for each region that has the instance type in question (except GovCloud) and give a reason in you caae description and click submit<br><br>`+
+                  `Once the request is submitted it can take 12-48 hours before the request is completed (though sometimes longer and sometimes shorter)`
+          })
+           
+          }
+        }
       };
       return (
           <div style={{marginTop:'2%'}} className="landing-page">          

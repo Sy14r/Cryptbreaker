@@ -1,4 +1,4 @@
-## **Cryptbreaker** - A Cloud Based Password Cracking and Auditing Tool
+## ![Cryptbreaker Logo](CroppedCryptbreakerLogo.jpg)**Cryptbreaker** - A Cloud Based Password Cracking and Auditing Tool
 
 Upload files and use AWS Spot Instances to crack passwords. Using cloud capabilities you can even prevent plaintext credentials from leaving the isolated cracking box ensuring that you get usable statistics on passwords while minimizing plaintext credential exposure.
 

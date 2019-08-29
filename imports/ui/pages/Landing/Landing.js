@@ -266,7 +266,12 @@ class Landing extends React.Component {
           })
   
           let innerOptions = {
-            download:false,
+            download:true,
+            downloadOptions: {
+              filterOptions:{
+                useDisplayedRowsOnly:true
+              }
+            },
             filter:true,
             print:false,
             viewColumns:false,
@@ -276,6 +281,47 @@ class Landing extends React.Component {
             innerOptions.searchText = this.state.searchText
             innerOptions.customSearch = (searchQuery, currentRow, columns) => {
               let isFound = false;
+              //custom 'filter:' logic
+              if(searchQuery.toLowerCase().split(':').length > 1 && searchQuery.toLowerCase().split(':')[0] == 'filter'){
+                // passLength query
+                if(searchQuery.toLowerCase().split(':')[1].includes('password.length')){
+                  if(currentRow[2] == "yes" && currentRow[3].length > 0){
+                    let splitVal = searchQuery.toLowerCase().split(':')[1].split(' ')
+                    if(splitVal.length > 2){
+                      if(["<",">","==","<=",">="].includes(splitVal[1])){
+                        switch(splitVal[1]){
+                          case "<":
+                            if(currentRow[3].length < splitVal[2]) {
+                              isFound = true
+                            }
+                            break
+                          case ">":
+                            if(currentRow[3].length > splitVal[2]) {
+                              isFound = true
+                            }
+                            break
+                          case "<=":
+                            if(currentRow[3].length <= splitVal[2]) {
+                              isFound = true
+                            }
+                            break
+                          case ">=":
+                            if(currentRow[3].length >= splitVal[2]) {
+                              isFound = true
+                            }
+                            break
+                          case "==":
+                            if(currentRow[3].length == splitVal[2]) {
+                              isFound = true
+                            }
+                            break
+                        }
+                      }
+                    }
+                    // console.log(currentRow[3])
+                  }
+                }
+              } 
               currentRow.forEach(col => {
                 if(typeof col !== 'undefined'){
                   //if (col.toString().indexOf(searchQuery) >= 0) {

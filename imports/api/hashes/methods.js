@@ -127,17 +127,20 @@ async function processUpload(fileName, fileData){
                     counter += 1;
 
                 } else {
-                    // If we didn't have the hash we add it
-                    let usernames = hash.meta.username
-                    delete hash.meta.username
-                    hash.meta.username = { [hashFileID]: usernames }
-                    // console.log(JSON.stringify(hash))
-                    let insertedVal = Hashes.insert(hash);
-                    if(!insertedVal){
-                        throw Error("Error inserting hash into database");
+                    // If we didn't have the hash we add it if it isn't the blank lm/ntlm hash
+                    if(hash.data !== "aad3b435b51404eeaad3b435b51404ee" && hash.data !== "31d6cfe0d16ae931b73c59d7e0c089c0"){
+                        let usernames = hash.meta.username
+                        delete hash.meta.username
+                        hash.meta.username = { [hashFileID]: usernames }
+                        // console.log(JSON.stringify(hash))
+                        let insertedVal = Hashes.insert(hash);
+                        if(!insertedVal){
+                            throw Error("Error inserting hash into database");
+                        }
+                        counter +=1
+                        differentHashes += 1
                     }
-                    counter +=1
-                    differentHashes += 1
+
                 }
             })
         })
@@ -846,6 +849,8 @@ Meteor.methods({
                     // We will add .25 to the rate chosen, and will allow this to be user controlled eventually...
                     let price = (parseFloat(data.rate) + 0.25).toFixed(2)
                     let userDataString = `#!/bin/bash
+sudo systemctl stop sshd.service
+sudo systemctl disable sshd.service
 sudo DEBIAN_FRONTEND=noninteractive apt-get -yq update
 sudo DEBIAN_FRONTEND=noninteractive apt-get -yq install build-essential linux-headers-$(uname -r) unzip p7zip-full linux-image-extra-virtual 
 sudo DEBIAN_FRONTEND=noninteractive apt-get -yq install python3-pip

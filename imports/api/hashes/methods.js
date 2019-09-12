@@ -912,7 +912,9 @@ if(hashTypes.includes("NTLM")){
     
     echo "Cracking NTLM Passwords" > status.txt
     aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
-    
+    `
+    // Building towards basic and advanced cracking
+    userDataString += `
     sudo ./hashcat-5.1.0/hashcat64.bin -a 0 -m 1000 ./${randomVal}.NTLM.credentials ./COMBINED-PASS.txt -r ./Hob0Rules/d3adhob0.rule -o crackedNTLM.txt -O -w 3
     sudo ./hashcat-5.1.0/hashcat64.bin -a 3 -m 1000 ./${randomVal}.NTLM.credentials -o brute7.txt -i ?a?a?a?a?a?a?a -O -w 3
     `
@@ -926,7 +928,9 @@ if(hashTypes.includes("LM")){
     
     echo "Cracking LM Passwords" > status.txt
     aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
-    
+    `
+    // Building towards basic and advanced cracking
+    userDataString += `    
     sudo ./hashcat-5.1.0/hashcat64.bin -a 0 -m 3000 ./${randomVal}.LM.credentials ./COMBINED-PASS.txt -r ./Hob0Rules/d3adhob0.rule -o crackedLM.txt -O -w 3
     sudo ./hashcat-5.1.0/hashcat64.bin -a 3 -m 3000 ./${randomVal}.LM.credentials -o brute7.txt -i ?a?a?a?a?a?a?a -O -w 3
     `

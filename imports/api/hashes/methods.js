@@ -48,104 +48,36 @@ function generateHashesFromLine(line) {
     return hashes;
 }
 
-async function processUpload(fileName, fileData){
-    const date = new Date();
-    // console.log(`Tasked to delete following account\n${this.userId}`);
-    // console.log(fileName);
-    // console.log(fileData);
+function updateHashesFromPotfile(fileData){
     let data = fileData.split(',')[1];
     let buff = new Buffer(data, 'base64');
     let text = buff.toString('ascii');
-
-    // console.log(text);
-    let counter = 0;
-    let differentHashes = 0;
-    let alreadyCrackedCount = 0;
-    let totalHashes = [];
+    let hashFilesUpdated = []
     _.each(text.split('\n'), (line) => {
         // Remove empty lines and comments
         if(line.length > 0 && line[0] !== "#"){
-            let hashesToAdd = generateHashesFromLine(line);
-            totalHashes.push(hashesToAdd);
-        }
-
-    })
-    if(totalHashes.length > 0){
-        const hashFileID = HashFiles.insert({name:fileName,hashCount:0,crackCount:0,uploadDate:date})
-        // NEED TO ADD HASHES
-        _.each(totalHashes, (hashesToAdd) => {
-            _.each(hashesToAdd,(hash)=>{
-                let newUsername = false;
-                let newFile = false;
-                hash.meta.source = [hashFileID];
-                // console.log(JSON.stringify(hash))
-                // Check if we already have the exact hash - source, account, and data are all the same
-                let storedHash = Hashes.findOne({data:{$eq:hash.data}})
-                // If we already have the hash,
-                if(storedHash) {
-                    // console.log(JSON.stringify(storedHash))
-                    // If we have the hash but from a different upload or for a different user then we update the existing hash entry   
-                    if(storedHash.meta.cracked) {
-                        alreadyCrackedCount += 1;
-                    }
-                    if(typeof storedHash.meta.username[hashFileID] === 'undefined' || !storedHash.meta.username[hashFileID].includes(hash.meta.username[0])){
-                        newUsername = true
-                    }
-                    if(!storedHash.meta.source.includes(hash.meta.source[0])){
-                        newFile = true
-                    }
-                    // let updatedValue;
-                    let usernameKey = `meta.username.${hashFileID}`
-                    if(newUsername && newFile)
-                    {
-                        // First username vs new username for already added source
-                        if(typeof storedHash.meta.username[hashFileID] === 'undefined') {
-                            updatedValue = Hashes.update({"_id":storedHash._id},{$set:{[usernameKey]:hash.meta.username,'meta.source':storedHash.meta.source.concat(hash.meta.source)}});
-                        } else {
-                            updatedValue = Hashes.update({"_id":storedHash._id},{$set:{[usernameKey]:storedHash.meta.username[hashFileID].concat(hash.meta.username),'meta.source':storedHash.meta.source.concat(hash.meta.source)}});
-                        }
-                        differentHashes += 1
-
-                    }
-                    else if(newUsername && !newFile)
-                    {
-                        // First username vs new username for already added source
-                        if(typeof storedHash.meta.username[hashFileID] === 'undefined') {
-                            updatedValue = Hashes.update({"_id":storedHash._id},{$set:{[usernameKey]:hash.meta.username}});
-
-                        } else {
-                            updatedValue = Hashes.update({"_id":storedHash._id},{$set:{[usernameKey]:storedHash.meta.username[hashFileID].concat(hash.meta.username)}});
-                        }
-                    }
-                    else if(!newUsername && newFile)
-                    {
-                        updatedValue = Hashes.update({"_id":storedHash._id},{$set:{'meta.source':storedHash.meta.source.concat(hash.meta.source)}});
-                    }
-                    // if(!updatedValue){
-                    //     throw Error("Error inserting hash into database");
-                    // }
-                    counter += 1;
-
-                } else {
-                    // If we didn't have the hash we add it if it isn't the blank lm/ntlm hash
-                    if(hash.data !== "aad3b435b51404eeaad3b435b51404ee" && hash.data !== "31d6cfe0d16ae931b73c59d7e0c089c0"){
-                        let usernames = hash.meta.username
-                        delete hash.meta.username
-                        hash.meta.username = { [hashFileID]: usernames }
-                        // console.log(JSON.stringify(hash))
-                        let insertedVal = Hashes.insert(hash);
-                        if(!insertedVal){
-                            throw Error("Error inserting hash into database");
-                        }
-                        counter +=1
-                        differentHashes += 1
-                    }
-
+            let hash = line.split(':')[0]
+            let plaintext = line.split(':').slice(1)[0].trimRight('\n')
+            // console.log(`${hash} -> ${plaintext}`)
+            // console.log(plaintext.length)
+            let hashData = Hashes.findOne({"data":hash})
+            let wasCracked = hashData.meta.cracked
+            Hashes.update({"data":hash},{$set:{'meta.cracked':true,'meta.plaintext':plaintext}})
+            _.each(hashData.meta.source, (eachSource) => {
+                // Make note of which hashFiles will need to have password length stats recalculated
+                hashFilesUpdated.includes(eachSource) ? null : hashFilesUpdated.push(eachSource)
+                // Update the crackCount for this hashFile
+                let theHashFile = HashFiles.findOne({"_id":eachSource})
+                // If the hash wasn't previously marked as cracked we need to modify the crackCounts
+                if(!wasCracked) {
+                    HashFiles.update({"_id":eachSource},{$set:{'crackCount':theHashFile.crackCount + 1}})
                 }
             })
-        })
-        HashFiles.update({_id:hashFileID},{$set:{hashCount:counter, distinctCount:differentHashes, crackCount:alreadyCrackedCount}});
-        // Calculate Cracked stats if we already have info...
+        }
+    })
+    // console.log(hashFilesUpdated)
+    // recalculate stats for each of the hash files that we modified...
+    _.each(hashFilesUpdated, (hashFileID) => {
         let $match = {$and:[{'meta.cracked':true},{'meta.source':`${hashFileID}`}]};
         let $project = {"length":{$strLenCP:"$meta.plaintext"}}
         let $group = {_id:"$length",count:{$sum:1}}
@@ -170,44 +102,179 @@ async function processUpload(fileName, fileData){
                 //return orderedItems;
                 HashFiles.update({"_id":`${hashFileID}`},{$set:{'passwordLengthStats':stats}})
             })();
-        
+    
         } catch (err) {
         throw new Meteor.Error('E1234', err.message);
         }
-        // Calcualte reuse stats
-        let hashFileUsersKey = `$meta.username.${hashFileID}`
-        $match = {'meta.source':hashFileID};
-        $project = {"hash":"$data","count":{$size:[hashFileUsersKey]}}
-        $sort = {count:-1}
-        try {
-            (async () => {
-                const stats = await Hashes.rawCollection().aggregate([
-                    { 
-                    $match
-                    },
-                    {
-                    $project, 
-                    },
-                    {
-                    $sort
-                    },
-                    {
-                    $limit:20
+    })
+
+}
+
+async function processUpload(fileName, fileData){
+    const date = new Date();
+    // console.log(`Tasked to delete following account\n${this.userId}`);
+    // console.log(fileName);
+    if(fileName.endsWith('potfile')) {
+        // console.log("POTFILE UPLOAD")
+        updateHashesFromPotfile(fileData)
+    } else {
+        // console.log(fileData);
+        let data = fileData.split(',')[1];
+        let buff = new Buffer(data, 'base64');
+        let text = buff.toString('ascii');
+
+        // console.log(text);
+        let counter = 0;
+        let differentHashes = 0;
+        let alreadyCrackedCount = 0;
+        let totalHashes = [];
+        _.each(text.split('\n'), (line) => {
+            // Remove empty lines and comments
+            if(line.length > 0 && line[0] !== "#"){
+                let hashesToAdd = generateHashesFromLine(line);
+                totalHashes.push(hashesToAdd);
+            }
+
+        })
+        if(totalHashes.length > 0){
+            const hashFileID = HashFiles.insert({name:fileName,hashCount:0,crackCount:0,uploadDate:date})
+            // NEED TO ADD HASHES
+            _.each(totalHashes, (hashesToAdd) => {
+                _.each(hashesToAdd,(hash)=>{
+                    let newUsername = false;
+                    let newFile = false;
+                    hash.meta.source = [hashFileID];
+                    // console.log(JSON.stringify(hash))
+                    // Check if we already have the exact hash - source, account, and data are all the same
+                    let storedHash = Hashes.findOne({data:{$eq:hash.data}})
+                    // If we already have the hash,
+                    if(storedHash) {
+                        // console.log(JSON.stringify(storedHash))
+                        // If we have the hash but from a different upload or for a different user then we update the existing hash entry   
+                        if(storedHash.meta.cracked) {
+                            alreadyCrackedCount += 1;
+                        }
+                        if(typeof storedHash.meta.username[hashFileID] === 'undefined' || !storedHash.meta.username[hashFileID].includes(hash.meta.username[0])){
+                            newUsername = true
+                        }
+                        if(!storedHash.meta.source.includes(hash.meta.source[0])){
+                            newFile = true
+                        }
+                        // let updatedValue;
+                        let usernameKey = `meta.username.${hashFileID}`
+                        if(newUsername && newFile)
+                        {
+                            // First username vs new username for already added source
+                            if(typeof storedHash.meta.username[hashFileID] === 'undefined') {
+                                updatedValue = Hashes.update({"_id":storedHash._id},{$set:{[usernameKey]:hash.meta.username,'meta.source':storedHash.meta.source.concat(hash.meta.source)}});
+                            } else {
+                                updatedValue = Hashes.update({"_id":storedHash._id},{$set:{[usernameKey]:storedHash.meta.username[hashFileID].concat(hash.meta.username),'meta.source':storedHash.meta.source.concat(hash.meta.source)}});
+                            }
+                            differentHashes += 1
+
+                        }
+                        else if(newUsername && !newFile)
+                        {
+                            // First username vs new username for already added source
+                            if(typeof storedHash.meta.username[hashFileID] === 'undefined') {
+                                updatedValue = Hashes.update({"_id":storedHash._id},{$set:{[usernameKey]:hash.meta.username}});
+
+                            } else {
+                                updatedValue = Hashes.update({"_id":storedHash._id},{$set:{[usernameKey]:storedHash.meta.username[hashFileID].concat(hash.meta.username)}});
+                            }
+                        }
+                        else if(!newUsername && newFile)
+                        {
+                            updatedValue = Hashes.update({"_id":storedHash._id},{$set:{'meta.source':storedHash.meta.source.concat(hash.meta.source)}});
+                        }
+                        // if(!updatedValue){
+                        //     throw Error("Error inserting hash into database");
+                        // }
+                        counter += 1;
+
+                    } else {
+                        // If we didn't have the hash we add it if it isn't the blank lm/ntlm hash
+                        if(hash.data !== "aad3b435b51404eeaad3b435b51404ee" && hash.data !== "31d6cfe0d16ae931b73c59d7e0c089c0"){
+                            let usernames = hash.meta.username
+                            delete hash.meta.username
+                            hash.meta.username = { [hashFileID]: usernames }
+                            // console.log(JSON.stringify(hash))
+                            let insertedVal = Hashes.insert(hash);
+                            if(!insertedVal){
+                                throw Error("Error inserting hash into database");
+                            }
+                            counter +=1
+                            differentHashes += 1
+                        }
+
                     }
-                ]).toArray();
-                //console.log(stats);
-                //return orderedItems;
-                HashFiles.update({"_id":`${hashFileID}`},{$set:{'passwordReuseStats':stats}})
-            })();
-        
-        } catch (err) {
-        throw new Meteor.Error('E1234', err.message);
+                })
+            })
+            HashFiles.update({_id:hashFileID},{$set:{hashCount:counter, distinctCount:differentHashes, crackCount:alreadyCrackedCount}});
+            // Calculate Cracked stats if we already have info...
+            let $match = {$and:[{'meta.cracked':true},{'meta.source':`${hashFileID}`}]};
+            let $project = {"length":{$strLenCP:"$meta.plaintext"}}
+            let $group = {_id:"$length",count:{$sum:1}}
+            let $sort = {_id:1}
+            try {
+                (async () => {
+                    const stats = await Hashes.rawCollection().aggregate([
+                        { 
+                        $match
+                        },
+                        {
+                        $project, 
+                        },
+                        {
+                        $group,
+                        },
+                        {
+                        $sort
+                        }
+                    ]).toArray();
+                    //console.log(stats);
+                    //return orderedItems;
+                    HashFiles.update({"_id":`${hashFileID}`},{$set:{'passwordLengthStats':stats}})
+                })();
+            
+            } catch (err) {
+            throw new Meteor.Error('E1234', err.message);
+            }
+            // Calcualte reuse stats
+            let hashFileUsersKey = `$meta.username.${hashFileID}`
+            $match = {'meta.source':hashFileID};
+            $project = {"hash":"$data","count":{$size:[hashFileUsersKey]}}
+            $sort = {count:-1}
+            try {
+                (async () => {
+                    const stats = await Hashes.rawCollection().aggregate([
+                        { 
+                        $match
+                        },
+                        {
+                        $project, 
+                        },
+                        {
+                        $sort
+                        },
+                        {
+                        $limit:20
+                        }
+                    ]).toArray();
+                    //console.log(stats);
+                    //return orderedItems;
+                    HashFiles.update({"_id":`${hashFileID}`},{$set:{'passwordReuseStats':stats}})
+                })();
+            
+            } catch (err) {
+            throw new Meteor.Error('E1234', err.message);
+            }
         }
-    }
-    else {
-        throw Error("No valid hashes parsed from upload, please open an issue on GitHub");
-    }
-    return true;
+        else {
+            throw Error("No valid hashes parsed from upload, please open an issue on GitHub");
+        }
+        return true;
+    }    
 }
 
 async function processGroupsUpload(fileName, fileData, hashFileID){
@@ -343,12 +410,16 @@ async function processGroupsUpload(fileName, fileData, hashFileID){
                 // console.log(hashesForUsers);
                 _.each(hashesForUsers, (userHash) => {
                     if(typeof userHash.meta.cracked !== 'undefined' && userHash.meta.cracked) {
-                    passReuseStats[userHash.data] = userHash.meta.username[hashFileID].length
-                    crackedTotal += userHash.meta.username[hashFileID].length
-                    _.each(userHash.meta.username[hashFileID], (crackedAccount) => {
-                        crackedUsers.push(crackedAccount)
-                        // console.log(crackedAccount)
-                    })
+                        let filteredUsersLength = _.filter(userHash.meta.username[hashFileID], function(val){
+                            return usersInGroup.includes(val);
+                        })
+                        // passReuseStats[userHash.data] = userHash.meta.username[hashFileID].length
+                        passReuseStats[userHash.data] = filteredUsersLength.length
+                        crackedTotal += filteredUsersLength.length
+                        _.each(filteredUsersLength, (crackedAccount) => {
+                            crackedUsers.push(crackedAccount)
+                            // console.log(crackedAccount)
+                        })
                     }
                 })
                 crackedStatOverview.push({
@@ -482,12 +553,16 @@ async function processGroupsUpload(fileName, fileData, hashFileID){
                 // console.log(hashesForUsers);
                 _.each(hashesForUsers, (userHash) => {
                     if(typeof userHash.meta.cracked !== 'undefined' && userHash.meta.cracked) {
-                    passReuseStats[userHash.data] = userHash.meta.username[hashFileID].length
-                    crackedTotal += userHash.meta.username[hashFileID].length
-                    _.each(userHash.meta.username[hashFileID], (crackedAccount) => {
-                        crackedUsers.push(crackedAccount)
-                        // console.log(crackedAccount)
-                    })
+                        let filteredUsersLength = _.filter(userHash.meta.username[hashFileID], function(val){
+                            return usersInGroup.includes(val);
+                        })
+                        // passReuseStats[userHash.data] = userHash.meta.username[hashFileID].length
+                        passReuseStats[userHash.data] = filteredUsersLength.length
+                        crackedTotal += filteredUsersLength.length
+                        _.each(filteredUsersLength, (crackedAccount) => {
+                            crackedUsers.push(crackedAccount)
+                            // console.log(crackedAccount)
+                        })
                     }
                 })
                 crackedStatOverview.push({
@@ -620,12 +695,16 @@ async function processGroupsUpload(fileName, fileData, hashFileID){
             // console.log(hashesForUsers);
             _.each(hashesForUsers, (userHash) => {
                 if(typeof userHash.meta.cracked !== 'undefined' && userHash.meta.cracked) {
-                passReuseStats[userHash.data] = userHash.meta.username[hashFileID].length
-                crackedTotal += userHash.meta.username[hashFileID].length
-                _.each(userHash.meta.username[hashFileID], (crackedAccount) => {
-                    crackedUsers.push(crackedAccount)
-                    // console.log(crackedAccount)
-                })
+                    let filteredUsersLength = _.filter(userHash.meta.username[hashFileID], function(val){
+                        return usersInGroup.includes(val);
+                    })
+                    // passReuseStats[userHash.data] = userHash.meta.username[hashFileID].length
+                    passReuseStats[userHash.data] = filteredUsersLength.length
+                    crackedTotal += filteredUsersLength.length
+                    _.each(filteredUsersLength, (crackedAccount) => {
+                        crackedUsers.push(crackedAccount)
+                        // console.log(crackedAccount)
+                    })
                 }
             })
             crackedStatOverview.push({

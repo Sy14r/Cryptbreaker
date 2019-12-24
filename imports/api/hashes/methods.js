@@ -1094,6 +1094,7 @@ sudo reboot`;
                           /* more items */
                         ],
                       };
+                      let chosenAZ = data.availabilityZone;
                       ec2.describeImages(params, function(err, data) {
                         if (err) console.log(err, err.stack); // an error occurred
                         else {
@@ -1113,13 +1114,14 @@ sudo reboot`;
                                 InstanceType: properInstanceType, 
                                 Placement: {
                                 // Need to send this in data as well...
-                                AvailabilityZone: data.availabilityZone
+                                AvailabilityZone: chosenAZ
                                 },
                                 UserData: userData, 
                                 }, 
                                 SpotPrice: `${price}`, 
                                 Type: "one-time",
                             };
+                            console.log(params);
                             ec2.requestSpotInstances(params, function(err, data) 
                             {
                                 bound(() => {

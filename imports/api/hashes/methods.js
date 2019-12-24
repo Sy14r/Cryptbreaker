@@ -1121,7 +1121,7 @@ sudo reboot`;
                                 SpotPrice: `${price}`, 
                                 Type: "one-time",
                             };
-                            console.log(params);
+                            //console.log(params);
                             ec2.requestSpotInstances(params, function(err, data) 
                             {
                                 bound(() => {

@@ -4,7 +4,9 @@ import Tooltip from "@material-ui/core/Tooltip";
 import VPNKeyIcon from "@material-ui/icons/VpnKey";
 import Assessment from "@material-ui/icons/Assessment";
 import DeleteOutlineIcon from "@material-ui/icons/DeleteOutline";
+import ImportExportIcon from "@material-ui/icons/ImportExportRounded"
 import { withStyles } from "@material-ui/core/styles";
+import { Hashes, HashFiles, HashCrackJobs } from '/imports/api/hashes/hashes.js';
 import Swal from 'sweetalert2'
 
 const defaultToolbarSelectStyles = {
@@ -244,6 +246,118 @@ class CustomToolbarSelect extends React.Component {
     })
   };
 
+  handleImportExport = () => {
+    let ids = this.getIdsFromSelection();
+    Swal.fire({
+      title: 'Choose Export Type',
+      input: 'select',
+      // inputOptions: {
+      //   apples: 'Apples',
+      //   bananas: 'Bananas',
+      //   grapes: 'Grapes',
+      //   oranges: 'Oranges'
+      // },
+      inputOptions: {
+        exportUncracked:"Export Uncracked Hashes",
+        exportCracked: "Export Cracked Hashes"
+      },
+      inputPlaceholder: '',
+      showCancelButton: true,
+    }).then((result) => {
+      if (result.value === "exportUncracked") {
+        console.log("Export uncracked")
+        console.log(ids)
+        if(ids.length > 1){
+          Swal.fire({
+            title: 'Operation not Permitted',
+            text:'Exporting to hashcat format across multiple Hash Files is not supported. Please export one file at a time',
+            type: 'error',
+            animation:false,
+            showConfirmButton:true,
+          })
+        } else {
+          // find all cracked hashes and create output of HASH:Plaintext
+          let uncrackedHashes = Hashes.find({ $and: [{'meta.source':`${ids[0]}`},{'meta.cracked':{$not: true}}] },{'fields':{'data':1,'meta.type':1 }}).fetch()
+          let dataToDownloadLM = ''
+          let dataToDownloadNTLM = ''
+          _.forEach(uncrackedHashes,(hash) => {
+            if(hash.meta.type === "LM"){
+              dataToDownloadLM +=  `${hash.data}\r\n`
+            } else if(hash.meta.type === "NTLM") {
+              dataToDownloadNTLM +=  `${hash.data}\r\n`
+            }
+           
+          })
+          if(dataToDownloadLM.length > 2) {
+            var element = document.createElement('a');
+            element.setAttribute('href', 'data:text/plaintext;charset=utf-8,' + dataToDownloadLM);
+            element.setAttribute('download', `${ids[0]}-LM-Uncracked.txt`);
+
+            element.style.display = 'none';
+            document.body.appendChild(element);
+
+            element.click();
+
+            document.body.removeChild(element);
+          }
+          if(dataToDownloadNTLM.length > 2) {
+            var element = document.createElement('a');
+            element.setAttribute('href', 'data:text/plaintext;charset=utf-8,' + dataToDownloadNTLM);
+            element.setAttribute('download', `${ids[0]}-NTLM-Uncracked.txt`);
+
+            element.style.display = 'none';
+            document.body.appendChild(element);
+
+            element.click();
+
+            document.body.removeChild(element);
+          }
+         
+        }
+        // for each file
+        // find uncracked hashes
+        // find all users referenced
+        // for each user find their uncracked hashes
+        // if count greater is 1 - check hash type and generate line properly
+        // if count  is 2 and one is LM and one is NTLM generate line properly
+        // else for each hash found generate a line properly
+        // let dataToReturn = ''
+        // _.forEach(ids, (id) => {
+          //{ query: { $and: [{'meta.source':'Bx55ynxxYsicnqnY4'},{'meta.cracked': {'$not':true}}] }, fields: { }, sort: { } }
+        // })
+      } else if (result.value === "exportCracked"){
+        // only single file supported
+        if(ids.length > 1){
+          Swal.fire({
+            title: 'Operation not Permitted',
+            text:'Exporting to hashcat format across multiple Hash Files is not supported. Please export one file at a time',
+            type: 'error',
+            animation:false,
+            showConfirmButton:true,
+          })
+        } else {
+          // find all cracked hashes and create output of HASH:Plaintext
+          let crackedHashes = Hashes.find({ $and: [{'meta.source':`${ids[0]}`},{'meta.cracked': true}] },{'fields':{'data':1,'meta.plaintext':1 }}).fetch()
+          let dataToDownload = ''
+          _.forEach(crackedHashes,(hash) => {
+            dataToDownload +=  `${hash.data}:${hash.meta.plaintext}\r\n`
+          })
+          var element = document.createElement('a');
+          element.setAttribute('href', 'data:text/plaintext;charset=utf-8,' + dataToDownload);
+          element.setAttribute('download', `${ids[0]}-cracked-hashes.txt`);
+
+          element.style.display = 'none';
+          document.body.appendChild(element);
+
+          element.click();
+
+          document.body.removeChild(element);
+        }
+
+      }
+    })
+  };
+
   handleClickReport = () => {
     let ids = this.getIdsFromSelection();
     let id = ids.join('.')
@@ -259,6 +373,11 @@ class CustomToolbarSelect extends React.Component {
         <Tooltip title={"Attempt to Crack"}>
           <IconButton className={classes.iconButton} onClick={this.handleClickCrack}>
             <VPNKeyIcon className={[classes.icon, classes.inverseIcon].join(" ")} />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title={"Export Hash Data"}>
+          <IconButton className={classes.iconButton} onClick={this.handleImportExport}>
+            <ImportExportIcon className={[classes.icon].join(" ")} />
           </IconButton>
         </Tooltip>
         <Tooltip title={"View Report"}>

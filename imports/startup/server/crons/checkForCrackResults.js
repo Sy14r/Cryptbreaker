@@ -527,6 +527,45 @@ function updateJobFromStatus(filename, s3Obj, job){
             if (err) console.log(err, err.stack); // an error occurred
             else  {
                 let content = data.Body.toString()
+                //console.log(content.split("\n"))
+                let status = ""
+                let hashType = ""
+                let crackType = ""
+                let crackStatus = ""
+                let timeEstimatedRemaining = ""
+                if(content.startsWith("Session")){
+                    //console.log("Session data")
+                    const splitSessData = content.split(("\n"))
+                    //let content = ""
+                    _.forEach(splitSessData, (line) => {
+                        if(line.trim().startsWith("Hash.Type")){
+                            hashType = line.trim().split(":")[1]
+                        }
+                        if(line.trim().startsWith("Guess.Mask")){
+                            crackType = "Brute Force"
+                        }
+                        if(crackType == "Brute Force" && line.trim().startsWith("Guess.Queue")){
+                            crackStatus = line.trim().split(":")[1].split(" ")[1]
+                        }
+                        if(line.trim().startsWith("Guess.Base")){
+                            crackType = "Dictionary Attack"
+                        }
+                        if(crackType == "Dictionary Attack" && line.trim().startsWith("Progress")){
+                            crackStatus = line.trim().split("(")[1].split(")")[0]
+                        }
+                        if(line.trim().startsWith("Time.Estimated")){
+                            timeEstimatedRemaining = line.trim().split("(")[1].split(")")[0]
+                        }
+                        if(line.trim().startsWith("Status")){
+                            status = line.trim().split(" ")[1]
+                        }
+                    })
+                    content = `${hashType} ${crackType} (${crackStatus}) - ${timeEstimatedRemaining} remaining`
+                    //console.log(content)
+                } 
+                // else {
+                    //console.log("NOT SESSION DATA")
+                // }
                 let update = HashCrackJobs.update({"_id":job._id},{$set:{'status':`${content}`}})
                 if(!update){
                     throw new Meteor.Error(500,"500 Internal Server Error","Unable to update status of job in updateJobFromStatus function")
@@ -614,9 +653,10 @@ function checkForCrackResults() {
                             let potfile = ''
                             let status = ''            
                             _.each(data.Contents, (result) => {
+                                console.log(result)
                                 if(result.Key.includes("potfile")){
                                     // We have the potfile...
-                                    // console.log("We have potfile...")
+                                    console.log("We have potfile...")
                                     potfile = result.Key
                                 }
                                 if(result.Key.includes("status")){

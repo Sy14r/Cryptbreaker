@@ -239,7 +239,8 @@ class Landing extends React.Component {
           sortDirection: 'desc',
         },
       })
-      
+
+
       const options = {
         download:false,
         filter:false,
@@ -264,9 +265,96 @@ class Landing extends React.Component {
               item.meta.inLists = "no"
             }
           })
-  
+
           let innerOptions = {
             download:true,
+            onDownload:  (buildHead, buildBody, columns,data) => {
+              
+              const realHandleDownload = async (buildHead, buildBody, columns,data, htmlValues, valuesCount) => {
+                // first have UI popup similar to the 'start crack' flow
+                
+                const { value: formValues } = await Swal.fire({
+                  title: 'Choose Columns to Export',
+                  html: htmlValues,
+                  focusConfirm: false,
+                  preConfirm: () => {
+                    let values = []
+                    let i;
+                    for (i = 0; i < htmlAndIndex[1]; i++) {
+                      let element = document.getElementById(`swal-input${i}`)
+                      values.push({value: element.value, isChecked: element.checked})
+                    }
+                    return values
+                  }
+                })
+                
+                if (formValues) {
+                  const replaceDoubleQuoteInString = columnData =>
+                  typeof columnData === 'string' ? columnData.replace(/\"/g, '""') : columnData;
+
+                  const getArrayContents = columnData => {
+                    if (typeof columnData === 'object'){                
+                      return Object.values(columnData).join(",")
+                    } else {
+                      return columnData;
+                    }
+                  }
+
+                  let newColumns = columns
+                  _.forEach(newColumns, (column) => {
+                    _.forEach(formValues, (value) => {
+                      if(value.value === column.label) {
+                        column.download = value.isChecked
+                      }
+                    })
+                  })
+                  
+                  let reducedData = data.reduce(
+                    (soFar, row) => 
+                      soFar +
+                      '"' +
+                      row.data
+                        .filter((_, index) => columns[index].download)
+                        .map(columnData => getArrayContents(columnData))
+                        .map(columnData => replaceDoubleQuoteInString(columnData))
+                        .join('"' + ',' + '"') +
+                      '"\r\n',
+                    '',
+                  ).trim()
+                  
+                  //console.log(columns)
+                  //console.log(`reducedData ${reducedData}`)
+                  // return false;
+                  var element = document.createElement('a');
+                  element.setAttribute('href', 'data:text/csv;charset=utf-8,' + encodeURIComponent(buildHead(newColumns) + reducedData));
+                  element.setAttribute('download', "export.csv");
+
+                  element.style.display = 'none';
+                  document.body.appendChild(element);
+
+                  element.click();
+
+                  document.body.removeChild(element);
+                  // return buildHead(columns) + reducedData;
+                }
+              }
+
+              const generateOptions = (columns) => {
+                let htmlValues = ''
+                let index = 0
+                  // '<input id="swal-input1" class="swal2-check">' +
+                  // '<input id="swal-input2" class="swal2-input">'
+                _.forEach(columns, (column) => {
+                  htmlValues += `<div class="dataExportOption"><input type="checkbox" id="swal-input${index}" value="${column.label}" checked>${column.label}</input></div>`
+                  index++
+                })
+                return [htmlValues, index]
+              }
+
+              let htmlAndIndex = generateOptions(columns)
+              realHandleDownload(buildHead, buildBody, columns,data, htmlAndIndex[0], htmlAndIndex[1])              
+              return false;
+            },
             downloadOptions: {
               filterOptions:{
                 useDisplayedRowsOnly:true

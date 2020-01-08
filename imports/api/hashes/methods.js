@@ -838,9 +838,6 @@ function deleteHashesFromID(id){
     HashFiles.remove({"_id":id})
 }
 
-
-  
-
 Meteor.methods({
     async uploadHashData(fileName,fileData) {
         processUpload(fileName, fileData);
@@ -926,10 +923,10 @@ Meteor.methods({
                 let crackJobID = HashCrackJobs.insert({uuid:randomVal,types:hashTypes,status:'Hashes Uploaded',sources:fileIDArray, duration:data.duration, instanceType:properInstanceType,availabilityZone:data.availabilityZone})
                 if(crackJobID){
                     // We will add .25 to the rate chosen, and will allow this to be user controlled eventually...
+                    //sudo systemctl stop sshd.service
+                    // sudo systemctl disable sshd.service
                     let price = (parseFloat(data.rate) + 0.25).toFixed(2)
                     let userDataString = `#!/bin/bash
-sudo systemctl stop sshd.service
-sudo systemctl disable sshd.service
 sudo DEBIAN_FRONTEND=noninteractive apt-get -yq update
 sudo DEBIAN_FRONTEND=noninteractive apt-get -yq install build-essential linux-headers-$(uname -r) unzip p7zip-full linux-image-extra-virtual 
 sudo DEBIAN_FRONTEND=noninteractive apt-get -yq install python3-pip
@@ -962,6 +959,9 @@ aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
 wget https://hashcat.net/files/hashcat-5.1.0.7z
 7za x hashcat-5.1.0.7z
 
+git clone https://github.com/Sy14r/HashWrap.git
+chmod +x /home/ubuntu/HashWrap/hashwrap
+
 git clone https://github.com/praetorian-code/Hob0Rules.git
 cd /home/ubuntu/Hob0Rules/wordlists
 gunzip *.gz
@@ -989,13 +989,17 @@ if(hashTypes.includes("NTLM")){
     aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.NTLM.credentials .
     aws s3 rm s3://${awsSettings.bucketName}/${randomVal}.NTLM.credentials
     
-    echo "Cracking NTLM Passwords" > status.txt
-    aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
     `
     // Building towards basic and advanced cracking
+    // temporarily removed from end:
+
     userDataString += `
-    sudo ./hashcat-5.1.0/hashcat64.bin -a 0 -m 1000 ./${randomVal}.NTLM.credentials ./COMBINED-PASS.txt -r ./Hob0Rules/d3adhob0.rule -o crackedNTLM.txt -O -w 3
-    sudo ./hashcat-5.1.0/hashcat64.bin -a 3 -m 1000 ./${randomVal}.NTLM.credentials -o brute7.txt -i ?a?a?a?a?a?a?a -O -w 3
+    sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 0 -m 1000 /home/ubuntu/${randomVal}.NTLM.credentials /home/ubuntu/COMBINED-PASS.txt -r /home/ubuntu/Hob0Rules/d3adhob0.rule -o crackedNTLM.txt -O -w 3 &
+    while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; do aws s3 cp /home/ubuntu/hashcat.status s3://${awsSettings.bucketName}/${randomVal}.status; sleep 30; done
+    rm /home/ubuntu/hashcat.status
+    sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 3 -m 1000 /home/ubuntu/${randomVal}.NTLM.credentials -o brute7.txt -i ?a?a?a?a?a?a?a -O -w 3 &
+    while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; do aws s3 cp /home/ubuntu/hashcat.status s3://${awsSettings.bucketName}/${randomVal}.status; sleep 30; done
+    rm /home/ubuntu/hashcat.status
     `
 }
 
@@ -1005,13 +1009,15 @@ if(hashTypes.includes("LM")){
     aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.LM.credentials .
     aws s3 rm s3://${awsSettings.bucketName}/${randomVal}.LM.credentials
     
-    echo "Cracking LM Passwords" > status.txt
-    aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
     `
     // Building towards basic and advanced cracking
     userDataString += `    
-    sudo ./hashcat-5.1.0/hashcat64.bin -a 0 -m 3000 ./${randomVal}.LM.credentials ./COMBINED-PASS.txt -r ./Hob0Rules/d3adhob0.rule -o crackedLM.txt -O -w 3
-    sudo ./hashcat-5.1.0/hashcat64.bin -a 3 -m 3000 ./${randomVal}.LM.credentials -o brute7.txt -i ?a?a?a?a?a?a?a -O -w 3
+    sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 0 -m 3000 /home/ubuntu/${randomVal}.LM.credentials /home/ubuntu/COMBINED-PASS.txt -r /home/ubuntu/Hob0Rules/d3adhob0.rule -o crackedLM.txt -O -w 3
+    while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; do aws s3 cp ./hashcat.status s3://${awsSettings.bucketName}/${randomVal}.status; sleep 30; done
+    rm /home/ubuntu/hashcat.status
+    sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 3 -m 3000 /home/ubuntu/${randomVal}.LM.credentials -o brute7.txt -i ?a?a?a?a?a?a?a -O -w 3
+    while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; do aws s3 cp ./hashcat.status s3://${awsSettings.bucketName}/${randomVal}.status; sleep 30; done
+    rm /home/ubuntu/hashcat.status
     `
 }
 // Logic for character swap
@@ -1022,11 +1028,11 @@ if(hashTypes.includes("LM")){
 // #while read line; do echo -n $line | cut -d ':' -f1 | tr -d '\n'; echo -n ":"; echo cracked; done < /tmp/fake.potfile
 userDataString += `
 sudo chown ubuntu:ubuntu ./hashcat-5.1.0/hashcat.potfile
-aws s3 rm s3://${awsSettings.bucketName}/${randomVal}.status
-
 # upload files after cracking
 if [ -f ./hashcat-5.1.0/hashcat.potfile ]
 then
+echo "Finishing Up..." > ./status.txt
+aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
 
 while read line; do echo -n \\$(echo \\$line | cut -d':' -f1 | tr -d '\\n') >> new.potfile; echo -n \":\" >> new.potfile; hit=\\$(egrep -l \"^\\$(echo \\$line | cut -d':' -f2)$\" \\$(find ./SecLists/Passwords/ -iname \"*.txt\") | tr '\\n' ','); if [ \"\\$hit\" != \"\" ]; then echo -n \"\\$(echo \\$line | cut -d':' -f2):\" >> new.potfile; echo \"\\$hit\" >> new.potfile;else echo -n \"\\$(echo \\$line | cut -d':' -f2)\" >> new.potfile; echo \":\" >> new.potfile; fi; done <./hashcat-5.1.0/hashcat.potfile
 `
@@ -1047,8 +1053,9 @@ if(redactionValue.redactionCharacter){
 cp new.potfile new2.potfile`
 }
 userDataString += `
+    if [ -f ./new2.potfile ]; then sleep 1; else echo emptypotfile > ./new2.potfile; fi
     aws s3 cp ./new2.potfile s3://${awsSettings.bucketName}/${randomVal}.hashcat.potfile
-
+    aws s3 rm s3://${awsSettings.bucketName}/${randomVal}.status
     # Self Terminate on completion
     instanceId=\$(curl http://169.254.169.254/latest/meta-data/instance-id/)
     region=\$(curl http://169.254.169.254/latest/dynamic/instance-identity/document | grep region | awk '{print \$3}' | sed  's/"//g'|sed 's/,//g')

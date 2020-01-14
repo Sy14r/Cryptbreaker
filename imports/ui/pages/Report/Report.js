@@ -68,6 +68,7 @@ class Report extends React.Component {
       let totalTotal = 0
       let passLengthStats = []
       let passReuseStats = []
+      let passReuseStatsCracked = []
       let hashFiles = [] 
       let groupData = {}
       let categoriesStatOverview = []
@@ -90,6 +91,9 @@ class Report extends React.Component {
             totalTotal += hashFiles[0].hashCount
             passLengthStats = hashFiles[0].passwordLengthStats  
             passReuseStats = hashFiles[0].passwordReuseStats
+            if(typeof hashFiles[0].passwordReuseStatsCracked !== 'undefined') {
+              passReuseStatsCracked = hashFiles[0].passwordReuseStatsCracked
+            }
             if(typeof hashFiles[0].groups !== 'undefined'){
               groupData = hashFiles[0].groups
             }
@@ -144,6 +148,15 @@ class Report extends React.Component {
         stat.value = stat.count
         if(stat.value > maxReuseVal){
           maxReuseVal = stat.value
+        }
+      })
+      let maxReuseValCracked = 0
+      _.each(passReuseStatsCracked, (stat) => {
+        stat.name = `${stat.hash}`
+        stat.label=`${stat.hash}`
+        stat.value = stat.count
+        if(stat.value > maxReuseValCracked){
+          maxReuseValCracked = stat.value
         }
       })
       // console.log(passReuseStats)
@@ -298,9 +311,35 @@ class Report extends React.Component {
             color={randombase}
             max={maxReuseVal}
           />
+          {passReuseStatsCracked.length > 0 ? (
+            <ChartItem
+            data={passReuseStatsCracked}
+            className="ChartCardFullWidth"
+            title="Cracked Password Reuse Statistics"
+            color={randombase}
+            max={maxReuseValCracked}
+          />
+          ) : (null)}
+          {
+            // Insert passReuseCracked Stats here
+          }
           {groupData ? (<div style={{marginTop:'.5em'}} className="break"></div>) : (null)}
           { Object.keys(groupData).map((key,index)=>{
+            let maxReuseVal = 0
+
             if(typeof groupData[key].stats !== 'undefined'){
+
+              if(typeof groupData[key].stats.passReuseStats !== 'undefined' && groupData[key].stats.passReuseStats.length > 0) {
+                // console.log(passLengthStats)
+                _.each(groupData[key].stats.passReuseStats, (stat) => {
+                  stat.name = `${stat.hash}`
+                  stat.label=`${stat.hash}`
+                  stat.value = stat.count
+                  if(stat.value > maxReuseVal){
+                    maxReuseVal = stat.value
+                  }
+                })
+              }
               console.log(groupData[key].stats.complete)
               // let users = groupData[key].data
               // let stats = groupData[key].stats
@@ -380,6 +419,8 @@ class Report extends React.Component {
               }
               // console.log(groupData[key])
             }
+
+            
             
             return(
               <>
@@ -447,6 +488,16 @@ class Report extends React.Component {
 
                       })}
                     </div> */}
+                    {groupData[key].stats.passReuseStats.length > 0 ? (
+                      <><ChartItem
+                      data={groupData[key].stats.passReuseStats}
+                      className="ChartCardFullWidth"
+                      title="Password Reuse Statistics"
+                      color={randombase}
+                      //max={maxReuseVal}
+                    />
+                    <div className="break"></div></>
+                    ) : (null)}
                     <MUIDataTable
                       className={"reportUsersTable"}
                       title={"Cracked Users"}
@@ -502,14 +553,15 @@ export default withTracker(() => {
   const hashCrackJobsSub = Meteor.subscribe('hashCrackJobs.all');
   const hashCrackJobs = HashCrackJobs.find().fetch();
   const awsPricingSub = Meteor.subscribe('aws.getPricing');
-  const hashesSub = Meteor.subscribe('hashes.all',100000);
+  // const hashesSub = Meteor.subscribe('hashes.all',100000);
   const awsPricing = AWSCOLLECTION.find({type:'pricing'}).fetch();
-  const subsReady = hashFilesSub.ready() && awsPricingSub.ready() && hashCrackJobsSub.ready() && hashesSub.ready() && hashFiles && awsPricing && hashCrackJobs;
+  // const subsReady = hashFilesSub.ready() && awsPricingSub.ready() && hashCrackJobsSub.ready() && hashesSub.ready() && hashFiles && awsPricing && hashCrackJobs;
+  const subsReady = hashFilesSub.ready() && awsPricingSub.ready() && hashCrackJobsSub.ready() && hashFiles && awsPricing && hashCrackJobs;
   return {
     subsReady,
     hashFiles,
     awsPricing,
     hashCrackJobs,
-    hashesSub,
+    // hashesSub,
   };
 })(Report);

@@ -35,31 +35,31 @@ class ChartItem extends React.Component {
             title:{
               display:true,
               text:this.props.title,
-            }
-            // scales: {
-            //   yAxes: [{
-            //     type:'linear',
-            //     ticks: {
-            //       min:0,
-            //       max:this.props.max,
-            //       display:true,
-            //     },
-            //     gridLines:{
-            //       display:false
-            //     },
-            //     scaleLabel:{
-            //       labelString:"Number of Observations",
-            //       display:false
-            //     }    
-            //   }],
-            //   xAxes:[{
-            //     scaleLabel:{
-            //       labelString:"Password Length",
-            //       display:false
-            //     }
-            //   }]
-            // }
-          }          
+            },
+            scales: {
+              // yAxes: [{
+              //   type:'linear',
+              //   ticks: {
+              //     min:0,
+              //     max:this.props.max,
+              //     display:true,
+              //   },
+              //   gridLines:{
+              //     display:false
+              //   },
+              //   scaleLabel:{
+              //     labelString:"Number of Observations",
+              //     display:false
+              //   }    
+              // }],
+              xAxes:[{
+                ticks:{min:0},
+                // scaleLabel:{
+                //   labelString:"Password Length",
+                //   display:false
+                }]
+              }
+            }      
         });
     }
   

@@ -1,6 +1,6 @@
 import { Meteor } from 'meteor/meteor';
-//import { CronJob } from 'cron';
 import { checkForCrackResults } from './crons/checkForCrackResults.js';
+import { clearFinishedFileUploadJobs } from './crons/clearFinishedFileUploadJobs.js';
 
 // Function/File to load all crons (detailed cron logig contained in the corresponding crons folder)
 Meteor.startup(function() {
@@ -14,18 +14,16 @@ Meteor.startup(function() {
       checkForCrackResults();
     }
   });
-
-//   SyncedCron.add({
-//     name: 'Schedule System Surveys',
-//     schedule: function(parser) {
-//       // parser is a later.parse object
-//       return parser.text('every 24 hours');
-//       // return parser.text('every 1 minutes');
-//     },
-//     job: function() {
-//       scheduleSurveys();
-//     }
-//   });
+  SyncedCron.add({
+    name: 'Clear Sucessful/Failed File Uploads',
+    schedule: function(parser) {
+      // parser is a later.parse object
+      return parser.text('every 15 minutes');
+    },
+    job: function() {
+      clearFinishedFileUploadJobs();
+    }
+  });
 
   SyncedCron.start();
 });

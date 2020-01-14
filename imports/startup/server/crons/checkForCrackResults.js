@@ -215,12 +215,23 @@ function processPotfile(filename, s3Obj, job){
                             let hash = Hashes.find({"data":regex}).fetch()
                             //console.log(`RAW LINE: ${JSON.stringify(splitVal)}`)
                             let update
+                            let textToEvaluate = splitVal[1]
+                            if(splitVal[1].includes('[space]')){
+                                textToEvaluate = splitVal[1].replace(/\[space\]/g," ")
+                            }
+                            let plaintextStats = {
+                                length: textToEvaluate.length,
+                                upperCount: (textToEvaluate.match(/[A-Z]/g) || []).length,
+                                lowerCount: (textToEvaluate.match(/[a-z]/g) || []).length,
+                                numberCount: (textToEvaluate.match(/[0-9]/g) || []).length,
+                                symbolCount: (textToEvaluate.match(/[-!$%^&*()@_+|~=`{}\[\]:";'<>?,.\/\ ]/g) || []).length,
+                            }
                             if(splitVal[2].length > 0){
                                 foundLists = splitVal[2].replace(/,$/,"").split(",")
                                 let categorizedFindings = passwordListsToCategories(foundLists)
-                                update = Hashes.update({"data":regex},{$set:{'meta.plaintext':`${splitVal[1]}`,'meta.cracked':true,'meta.lists':foundLists,'meta.listCategories':categorizedFindings[0],'meta.breachesObserved':categorizedFindings[1]}})
+                                update = Hashes.update({"data":regex},{$set:{'meta.plaintext':`${splitVal[1]}`,'meta.cracked':true,'meta.plaintextStats':plaintextStats,'meta.lists':foundLists,'meta.listCategories':categorizedFindings[0],'meta.breachesObserved':categorizedFindings[1]}})
                             } else {
-                                update = Hashes.update({"data":regex},{$set:{'meta.plaintext':`${splitVal[1]}`,'meta.cracked':true}})
+                                update = Hashes.update({"data":regex},{$set:{'meta.plaintext':`${splitVal[1]}`,'meta.cracked':true,'meta.plaintextStats':plaintextStats}})
                             }
                             if(!update){
                                 throw new Meteor.Error(500,"500 Internal Server Error","Unable to update plaintext in processPotfile function")
@@ -244,9 +255,21 @@ function processPotfile(filename, s3Obj, job){
                             if(hash.length > 0) {
                                 _.each(hash, (theHash) => {
                                     let currPlain = ''
+                                    let plaintextStats = {}
                                     if(typeof theHash.meta.plaintext !== 'undefined'){
                                         currPlain = theHash.meta.plaintext
                                         hashCracked = true
+                                        let textToEvaluate = splitVal[1]+currPlain
+                                        if(textToEvaluate.includes('[space]')){
+                                            textToEvaluate = textToEvaluate.replace(/\[space\]/g," ")
+                                        }
+                                        plaintextStats = {
+                                            length: textToEvaluate.length,
+                                            upperCount: (textToEvaluate.match(/[A-Z]/g) || []).length,
+                                            lowerCount: (textToEvaluate.match(/[a-z]/g) || []).length,
+                                            numberCount: (textToEvaluate.match(/[0-9]/g) || []).length,
+                                            symbolCount: (textToEvaluate.match(/[-!$%^&*()@_+|~=`{}\[\]:";'<>?,.\/\ ]/g) || []).length,
+                                        }
                                     }
                                     let update = Hashes.update({"_id":theHash._id},{$set:{'meta.plaintext':`${splitVal[1]+currPlain}`}})
                                     if(!update){
@@ -254,7 +277,7 @@ function processPotfile(filename, s3Obj, job){
                                     } 
                                     if(hashCracked) {
                                         // console.log("HASH CRACKED LM")
-                                        Hashes.update({"_id":theHash._id},{$set:{'meta.cracked':true}})
+                                        Hashes.update({"_id":theHash._id},{$set:{'meta.cracked':true,'meta.plaintextStats':plaintextStats}})
                                         _.each(theHash.meta.source, (source) => {
                                             let hashFile = HashFiles.find({"_id":source}).fetch()
                                             // console.log(hashFile)
@@ -266,10 +289,22 @@ function processPotfile(filename, s3Obj, job){
                                 
                             } else if(hash2.length > 0){
                                 _.each(hash2, (theHash) => {
+                                    let plaintextStats = {}
                                     let currPlain = ''
                                     if(typeof theHash.meta.plaintext !== 'undefined'){
                                         currPlain = theHash.meta.plaintext
                                         hashCracked = true
+                                        let textToEvaluate = currPlain+splitVal[1]
+                                        if(textToEvaluate.includes('[space]')){
+                                            textToEvaluate = textToEvaluate.replace(/\[space\]/g," ")
+                                        }
+                                        plaintextStats = {
+                                            length: textToEvaluate.length,
+                                            upperCount: (textToEvaluate.match(/[A-Z]/g) || []).length,
+                                            lowerCount: (textToEvaluate.match(/[a-z]/g) || []).length,
+                                            numberCount: (textToEvaluate.match(/[0-9]/g) || []).length,
+                                            symbolCount: (textToEvaluate.match(/[-!$%^&*()@_+|~=`{}\[\]:";'<>?,.\/\ ]/g) || []).length,
+                                        }
                                     }
                                     let update = Hashes.update({"_id":theHash._id},{$set:{'meta.plaintext':`${currPlain+splitVal[1]}`}})
                                     if(!update){
@@ -277,7 +312,7 @@ function processPotfile(filename, s3Obj, job){
                                     }    
                                     if(hashCracked) {
                                         // console.log("HASH CRACKED LM")
-                                        Hashes.update({"_id":theHash._id},{$set:{'meta.cracked':true}})
+                                        Hashes.update({"_id":theHash._id},{$set:{'meta.cracked':true,'meta.plaintextStats':plaintextStats}})
                                         _.each(theHash.meta.source, (source) => {
                                             let hashFile = HashFiles.find({"_id":source}).fetch()
                                             // console.log(hashFile)
@@ -300,10 +335,23 @@ function processPotfile(filename, s3Obj, job){
                     let hashCracked = false
                     if(hash2.length > 0){
                         _.each(hash2, (theHash) => {
+                            let plaintextStats = {}
                             let currPlain = ''
                             if(typeof theHash.meta.plaintext !== 'undefined'){
                                 currPlain = theHash.meta.plaintext
                                 hashCracked = true
+                                let textToEvaluate = currPlain
+                                if(currPlain.includes('[space]')){
+                                    textToEvaluate = textToEvaluate.replace(/\[space\]/g," ")
+                                }
+                                plaintextStats = {
+                                    length: textToEvaluate.length,
+                                    upperCount: (textToEvaluate.match(/[A-Z]/g) || []).length,
+                                    lowerCount: (textToEvaluate.match(/[a-z]/g) || []).length,
+                                    numberCount: (textToEvaluate.match(/[0-9]/g) || []).length,
+                                    symbolCount: (textToEvaluate.match(/[-!$%^&*()@_+|~=`{}\[\]:";'<>?,.\/\ ]/g) || []).length,
+                                }
+                                
                             }
                             let update = Hashes.update({"_id":theHash._id},{$set:{'meta.plaintext':`${currPlain}`}})
                             if(!update){
@@ -311,7 +359,7 @@ function processPotfile(filename, s3Obj, job){
                             }    
                             if(hashCracked) {
                                 // console.log("HASH CRACKED LM")
-                                Hashes.update({"_id":theHash._id},{$set:{'meta.cracked':true}})
+                                Hashes.update({"_id":theHash._id},{$set:{'meta.cracked':true,'meta.plaintextStats':plaintextStats}})
                                 _.each(theHash.meta.source, (source) => {
                                     let hashFile = HashFiles.find({"_id":source}).fetch()
                                     // console.log(hashFile)
@@ -448,10 +496,40 @@ function processPotfile(filename, s3Obj, job){
                                     $sort
                                     }
                                 ]).toArray();
-                                console.log(stats);
+                                // console.log(stats);
                                 //return orderedItems;
                                 HashFiles.update({"_id":`${source}`},{$set:{'passwordLengthStats':stats}})
-                            })();
+                            })().then(() => {
+                                // Calcualte reuse stats
+                                let hashFileUsersKey = `$meta.username.${source}`
+                                let plaintextFilter = "$meta.plaintext"
+                                $match = {$and: [{'meta.source':source},{'meta.cracked':true}]};
+                                $project = {"hash":plaintextFilter,"count":{$size:[hashFileUsersKey]}}
+                                $sort = {count:-1}
+                                try {
+                                    (async () => {
+                                        const stats = await Hashes.rawCollection().aggregate([
+                                            { 
+                                            $match
+                                            },
+                                            {
+                                            $project, 
+                                            },
+                                            {
+                                            $sort
+                                            },
+                                            {
+                                            $limit:10
+                                            }
+                                        ]).toArray();
+                                        // console.log(stats);
+                                        //return orderedItems;
+                                        HashFiles.update({"_id":`${source}`},{$set:{'passwordReuseStatsCracked':stats}})
+                                    })();
+                                } catch (err) {
+                                    throw new Meteor.Error('E1235',err.message);
+                                }
+                            });
                         
                         } catch (err) {
                         throw new Meteor.Error('E1234', err.message);
@@ -496,7 +574,7 @@ function processPotfile(filename, s3Obj, job){
                                     $count:"data"
                                     }
                                 ]).toArray();
-                                if(typeof stats[0].data !== 'undefined'){
+                                if(typeof stats[0] !== 'undefined' && typeof stats[0].data !== 'undefined'){
                                     let updateKey = `breachListStats.${key}.count`
                                     HashFiles.update({"_id":`${source}`},{$set:{[updateKey]:stats[0].data}})    
                                 }
@@ -506,6 +584,85 @@ function processPotfile(filename, s3Obj, job){
                             throw new Meteor.Error('E3456', err.message);
                             }
                         })
+                    }
+                    // Update password policy violations as necessary
+                    let hashFile = HashFiles.findOne({"_id":source})
+                    if(typeof hashFile.passwordPolicy !== 'undefined'){
+                        let policyDoc = hashFile.passwordPolicy
+                        let violations = []
+                        let crackedHashes = Hashes.find({$and:[{"meta.source":source},{'meta.cracked':true}]}).fetch()
+                        if(crackedHashes.length > 0){
+                            _.each(crackedHashes, (hash) => {
+                                
+                                let textToEvaluate = hash.meta.plaintext
+                                if(textToEvaluate.includes('[space]')){
+                                    textToEvaluate = textToEvaluate.replace(/\[space\]/g," ")
+                                }
+                                let wasInvalid = false
+                                if(policyDoc.hasLengthRequirement === true){
+                                    if(textToEvaluate.length < policyDoc.lengthRequirement)
+                                    {
+                                        violations.push(hash._id)
+                                        wasInvalid = true
+                                    }
+                                }
+                                if(!wasInvalid && policyDoc.hasUpperRequirement  === true){
+                                    if((textToEvaluate.match(/[A-Z]/g) || []).length < policyDoc.upperRequirement)
+                                    {
+                                        violations.push(hash._id)
+                                        wasInvalid = true
+                                    }
+                                }
+                                if(!wasInvalid && policyDoc.hasLowerRequirement === true){
+                                    if((textToEvaluate.match(/[a-z]/g) || []).length < policyDoc.lowerRequirement)
+                                    {
+                                        violations.push(hash._id)
+                                        wasInvalid = true
+                                    }
+                                }
+                                if(!wasInvalid && policyDoc.hasSymbolsRequirement === true){
+                                    if((textToEvaluate.match(/[-!$%^&*()@_+|~=`{}\[\]:";'<>?,.\/\ ]/g) || []).length < policyDoc.symbolsRequirement)
+                                    {
+                                        violations.push(hash._id)
+                                        wasInvalid = true
+                                    }
+                                }
+                                if(!wasInvalid && policyDoc.hasNumberRequirement === true){
+                                    if((textToEvaluate.match(/[0-9]/g) || []).length < policyDoc.numberRequirement)
+                                    {
+                                        violations.push(hash._id)
+                                        wasInvalid = true
+                                    }
+                                }
+                                if(!wasInvalid && policyDoc.hasUsernameRequirement === true){
+                                    _.each(hash.meta.username[hashFileID], (username) => {
+                                        if(!wasInvalid){
+                                            let accountName = username
+                                            let domainName = ""
+                                            if(username.includes("\\")){
+                                                let splitVal = username.split("\\")
+                                                accountName = splitVal[1]
+                                                domainName = splitVal[0]
+                                            }
+                                            if(!wasInvalid && domainName !== ""){
+                                                if(textToEvaluate.toLowerCase().includes(domainName.toLowerCase())){
+                                                    violations.push(hash._id)
+                                                    wasInvalid = true
+                                                }
+                                            }
+                                            if(!wasInvalid && accountName !== ""){
+                                                if(textToEvaluate.toLowerCase().includes(accountName.toLowerCase())){
+                                                    violations.push(hash._id)
+                                                    wasInvalid = true
+                                                }
+                                            }
+                                        }        
+                                    })
+                                }
+
+                            })
+                        }
+                        HashFiles.update({"_id":source},{$set:{'policyViolations':violations}})
                     }
                 })
                 
@@ -641,7 +798,7 @@ function checkForCrackResults() {
                     })
                 })
             }else {
-                console.log("Instance running, need to check S3")
+                // console.log("Instance running, need to check S3")
                 var params = {
                     Bucket: `${awsSettings.bucketName}`, 
                     Prefix: `${job.uuid}`
@@ -653,10 +810,10 @@ function checkForCrackResults() {
                             let potfile = ''
                             let status = ''            
                             _.each(data.Contents, (result) => {
-                                console.log(result)
+                                // console.log(result)
                                 if(result.Key.includes("potfile")){
                                     // We have the potfile...
-                                    console.log("We have potfile...")
+                                    // console.log("We have potfile...")
                                     potfile = result.Key
                                 }
                                 if(result.Key.includes("status")){

@@ -5,9 +5,13 @@
 
 import { Meteor } from 'meteor/meteor';
 import { Roles } from 'meteor/alanning:roles';
-import { Hashes, HashFiles, HashCrackJobs } from './hashes.js';
+import { Hashes, HashFiles, HashCrackJobs, HashFileUploadJobs } from './hashes.js';
 import { AWSCOLLECTION } from '/imports/api/aws/aws.js';
 var AWS = require('aws-sdk');
+var fs = require('fs');
+var path = require("path");
+var StreamZip = require('node-stream-zip');
+
 
 import _ from 'lodash';
 
@@ -21,48 +25,64 @@ function generateHashesFromLine(line) {
     if(splitLine.length - 1 === 6){
         // console.log("HASHDUMP");
         // console.log(splitLine[0].replace('\\\\','\\'))
-        if(splitLine[2].length > 0){
-            // We have a LM password
-            hashes.push({
-                data:splitLine[2],
-                meta: {
-                    username: [splitLine[0].replace('\\\\','\\')],
-                    type:"LM",
-                }
-            });
-        }
-        if(splitLine[3].length > 0){
-            // We have an NTLM password
-            hashes.push({
-                data:splitLine[3],
-                meta: {
-                    username: [splitLine[0].replace('\\\\','\\')],
-                    type:"NTLM",
-                }
-            });
-        }
-        return hashes;
+        if(typeof splitLine[0] === 'string' && splitLine[0].toLowerCase() !== 'krbtgt'){
+            if(splitLine[2].length > 0){
+                // We have a LM password
+                hashes.push({
+                    data:splitLine[2].toUpperCase(),
+                    meta: {
+                        username: [splitLine[0].replace('\\\\','\\')],
+                        type:"LM",
+                    }
+                });
+            }
+            if(splitLine[3].length > 0){
+                // We have an NTLM password
+                hashes.push({
+                    data:splitLine[3].toUpperCase(),
+                    meta: {
+                        username: [splitLine[0].replace('\\\\','\\')],
+                        type:"NTLM",
+                    }
+                });
+            }
+            return hashes;
+        }        
     }
     // NEED TO ADD LOGIC HERE FOR NON HASHDUMP FORMATTED OUTPUT...
 
     return hashes;
 }
 
-function updateHashesFromPotfile(fileData){
+function updateHashesFromPotfile(fileName, fileData){
+    const hashFileUploadJobID = HashFileUploadJobs.insert({name:fileName,uploadStatus:0,description:"Uploading Potfile"})
     let data = fileData.split(',')[1];
     let buff = new Buffer(data, 'base64');
     let text = buff.toString('ascii');
     let hashFilesUpdated = []
-    _.each(text.split('\n'), (line) => {
+    let count = 0
+    let splitData = text.split('\n')
+    _.each(splitData, (line) => {
         // Remove empty lines and comments
         if(line.length > 0 && line[0] !== "#"){
             let hash = line.split(':')[0]
-            let plaintext = line.split(':').slice(1)[0].trimRight('\n')
+            let plaintext = line.split(':').slice(1)[0].trim()
             // console.log(`${hash} -> ${plaintext}`)
             // console.log(plaintext.length)
+            let textToEvaluate = plaintext
+            if(plaintext.includes('[space]')){
+                textToEvaluate = plaintext.replace(/\[space\]/g," ")
+            }
+            let plaintextStats = {
+                length: textToEvaluate.length,
+                upperCount: (textToEvaluate.match(/[A-Z]/g) || []).length,
+                lowerCount: (textToEvaluate.match(/[a-z]/g) || []).length,
+                numberCount: (textToEvaluate.match(/[0-9]/g) || []).length,
+                symbolCount: (textToEvaluate.match(/[-!$%^&*()@_+|~=`{}\[\]:";'<>?,.\/\ ]/g) || []).length,
+            }
             let hashData = Hashes.findOne({"data":hash})
             let wasCracked = hashData.meta.cracked
-            Hashes.update({"data":hash},{$set:{'meta.cracked':true,'meta.plaintext':plaintext}})
+            Hashes.update({"data":hash},{$set:{'meta.cracked':true,'meta.plaintext':plaintext,'meta.plaintextStats':plaintextStats}})
             _.each(hashData.meta.source, (eachSource) => {
                 // Make note of which hashFiles will need to have password length stats recalculated
                 hashFilesUpdated.includes(eachSource) ? null : hashFilesUpdated.push(eachSource)
@@ -74,10 +94,18 @@ function updateHashesFromPotfile(fileData){
                 }
             })
         }
+        count++
+        if(count % 100 == 0){
+            bound(() =>{HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:(count/splitData.length)*100}})})
+        }
+
     })
+    bound(() =>{HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:100,description:"Potfile Uploaded Successfully"}})})
+
     // console.log(hashFilesUpdated)
     // recalculate stats for each of the hash files that we modified...
     _.each(hashFilesUpdated, (hashFileID) => {
+        // First stat is the length of cracked plaintext passwords
         let $match = {$and:[{'meta.cracked':true},{'meta.source':`${hashFileID}`}]};
         let $project = {"length":{$strLenCP:"$meta.plaintext"}}
         let $group = {_id:"$length",count:{$sum:1}}
@@ -101,29 +129,242 @@ function updateHashesFromPotfile(fileData){
                 //console.log(stats);
                 //return orderedItems;
                 HashFiles.update({"_id":`${hashFileID}`},{$set:{'passwordLengthStats':stats}})
-            })();
+            })().then(() => {
+                // Calcualte reuse stats
+                let hashFileUsersKey = `$meta.username.${hashFileID}`
+                let plaintextFilter = "$meta.plaintext"
+                $match = {$and: [{'meta.source':hashFileID},{'meta.cracked':true}]};
+                $project = {"hash":plaintextFilter,"count":{$size:[hashFileUsersKey]}}
+                $sort = {count:-1}
+                try {
+                    (async () => {
+                        const stats = await Hashes.rawCollection().aggregate([
+                            { 
+                            $match
+                            },
+                            {
+                            $project, 
+                            },
+                            {
+                            $sort
+                            },
+                            {
+                            $limit:10
+                            }
+                        ]).toArray();
+                        // console.log(stats);
+                        //return orderedItems;
+                        HashFiles.update({"_id":`${hashFileID}`},{$set:{'passwordReuseStatsCracked':stats}})
+                    })();
+                } catch (err) {
+                    throw new Meteor.Error('E1235',err.message);
+                }
+                
+            });
     
         } catch (err) {
         throw new Meteor.Error('E1234', err.message);
         }
+        // if there are password policies then update the violates policy here as well...
+        let hashFile = HashFiles.findOne({"_id":hashFileID})
+        if(typeof hashFile.passwordPolicy !== 'undefined'){
+            let policyDoc = hashFile.passwordPolicy
+            let crackedHashes = Hashes.find({$and:[{"meta.source":hashFileID},{'meta.cracked':true}]}).fetch()
+            let violations = []
+
+            if(crackedHashes.length > 0){
+                _.each(crackedHashes, (hash) => {
+                    
+                    let textToEvaluate = hash.meta.plaintext
+                    if(textToEvaluate.includes('[space]')){
+                        textToEvaluate = textToEvaluate.replace(/\[space\]/g," ")
+                    }
+                    let wasInvalid = false
+                    if(policyDoc.hasLengthRequirement === true){
+                        if(textToEvaluate.length < policyDoc.lengthRequirement)
+                        {
+                            violations.push(hash._id)
+                            wasInvalid = true
+                        }
+                    }
+                    if(!wasInvalid && policyDoc.hasUpperRequirement  === true){
+                        if((textToEvaluate.match(/[A-Z]/g) || []).length < policyDoc.upperRequirement)
+                        {
+                            violations.push(hash._id)
+                            wasInvalid = true
+                        }
+                    }
+                    if(!wasInvalid && policyDoc.hasLowerRequirement === true){
+                        if((textToEvaluate.match(/[a-z]/g) || []).length < policyDoc.lowerRequirement)
+                        {
+                            violations.push(hash._id)
+                            wasInvalid = true
+                        }
+                    }
+                    if(!wasInvalid && policyDoc.hasSymbolsRequirement === true){
+                        if((textToEvaluate.match(/[-!$%^&*()@_+|~=`{}\[\]:";'<>?,.\/\ ]/g) || []).length < policyDoc.symbolsRequirement)
+                        {
+                            violations.push(hash._id)
+                            wasInvalid = true
+                        }
+                    }
+                    if(!wasInvalid && policyDoc.hasNumberRequirement === true){
+                        if((textToEvaluate.match(/[0-9]/g) || []).length < policyDoc.numberRequirement)
+                        {
+                            violations.push(hash._id)
+                            wasInvalid = true
+                        }
+                    }
+                    if(!wasInvalid && policyDoc.hasUsernameRequirement === true){
+                        _.each(hash.meta.username[hashFileID], (username) => {
+                            if(!wasInvalid){
+                                let accountName = username
+                                let domainName = ""
+                                if(username.includes("\\")){
+                                    let splitVal = username.split("\\")
+                                    accountName = splitVal[1]
+                                    domainName = splitVal[0]
+                                }
+                                if(!wasInvalid && domainName !== ""){
+                                    if(textToEvaluate.toLowerCase().includes(domainName.toLowerCase())){
+                                        violations.push(hash._id)
+                                        wasInvalid = true
+                                    }
+                                }
+                                if(!wasInvalid && accountName !== ""){
+                                    if(textToEvaluate.toLowerCase().includes(accountName.toLowerCase())){
+                                        violations.push(hash._id)
+                                        wasInvalid = true
+                                    }
+                                }
+                            }        
+                        })
+                    }
+
+                })
+            }
+            HashFiles.update({"_id":hashFileID},{$set:{'policyViolations':violations}})
+        }
+        
     })
 
 }
 
-async function processUpload(fileName, fileData){
+async function processNTDSZip(fileName, fileData, date){
+    
+    const hashFileID = HashFiles.insert({name:`${fileName}`,uploadStatus:0,hashCount:0,crackCount:0,uploadDate:date})
+    const hashFileUploadJobID = HashFileUploadJobs.insert({name:fileName,uploadStatus:0,hashFileID:hashFileID,description:"Processing ZIP File"})
+    let data = fileData.split(',')[1];
+    let buff = new Buffer(data, 'base64');
+
+    var fsWriteFileSync = Meteor.wrapAsync(fs.writeFile,fs);
+    fs.mkdirSync(`/tmp/${fileName}`)
+    fsWriteFileSync(`/tmp/${fileName}/${fileName}`,buff);
+    // we have the file in /tmp
+    bound(() =>{HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:10, description:"Extracting ZIP"}})})
+    var zip = new StreamZip({
+        file: `/tmp/${fileName}/${fileName}`
+      , storeEntries: true
+    });
+    zip.on('error', function(err) { 
+        bound(() =>{HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:-1, description:"Error Extracting ZIP"}})})
+        console.error('[ERROR]', err); 
+    });
+
+    zip.on('ready', function () {
+    // console.log('All entries read: ' + zip.entriesCount);
+    //console.log(zip.entries());
+    });
+    let total = 0
+    let count = 0
+    zip.on('entry', function (entry) {
+        var pathname = path.resolve(`/tmp/${fileName}/`, entry.name);
+        if (/\.\./.test(path.relative(`/tmp/${fileName}/`, pathname))) {
+            // console.warn("[zip warn]: ignoring maliciously crafted paths in zip file:", entry.name);
+            total++
+            return;
+        }
+      
+        if ('/' === entry.name[entry.name.length - 1]) {
+        //   console.log('[DIR]', entry.name);
+          fs.mkdirSync(pathname)
+          return;
+        } else {
+            total++
+        }
+      
+        // console.log('[FILE]', entry.name);
+        zip.stream(entry.name, function (err, stream) {
+          if (err) { console.error('Error:', err.toString()); return; }
+      
+          stream.on('error', function (err) { console.log('[ERROR]', err); return; });
+      
+          // example: print contents to screen
+          //stream.pipe(process.stdout);
+      
+          // example: save contents to file
+        //   console.log(pathname)
+          fs.stat(pathname, function(err) {
+            if (err != null){
+                stream.pipe(fs.createWriteStream(`${pathname}`));
+                count++
+                if(count==total){
+                    bound(() =>{HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:20, description:"Recovering Secrets"}})})
+                    // console.log("ZIP PROCESSED")
+                    // console.log("Recovering Secrets...")
+                    const util = require('util');
+                    const exec = util.promisify(require('child_process').exec);
+
+                    //also look here for recovering histoy in the future...
+                    async function waitExec() {
+                    const { stdout, stderr } = await exec(`secretsdump.py -system /tmp/${fileName}/registry/SYSTEM -ntds "/tmp/${fileName}/Active Directory/ntds.dit" LOCAL -outputfile /tmp/${fileName}/customer 2>&1 >/dev/null`);
+                        // console.log('stdout:', stdout);
+                        // console.error('stderr:', stderr);
+                        bound(() =>{HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:30}})})
+                        // console.log(`Secret Recovery Complete...`)
+                        // we now have the /tmp/${fileName}/customer.ntds file in the format we want...                      
+                        fs.readFile(`/tmp/${fileName}/customer.ntds`, 'utf8', function(err, contents) {
+                            // console.log(contents);
+                            exec(`rm -rf /tmp/${fileName}`)
+                            bound(() =>{HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:45, description:"Adding Hashes to DB"}})})
+                            processUpload(fileName, contents, false, hashFileID)
+                            return true;
+                        });
+                    }
+                    waitExec();   
+                }
+            }})
+        });
+      })
+      
+}
+
+async function processUpload(fileName, fileData, isBase64, providedID){
     const date = new Date();
     // console.log(`Tasked to delete following account\n${this.userId}`);
     // console.log(fileName);
-    if(fileName.endsWith('potfile')) {
+    if(fileName.endsWith('.potfile')) {
         // console.log("POTFILE UPLOAD")
-        updateHashesFromPotfile(fileData)
-    } else {
+        updateHashesFromPotfile(fileName, fileData)
+    } else if(fileName.endsWith('.zip') && isBase64) {
+        // console.log("POTFILE UPLOAD")
+        // console.log("NEED TO PROCESS ZIP")
+        processNTDSZip(fileName,fileData, date)     
+    } else { 
+        // console.log("'Normal' Upload")
+        // console.log(isBase64)
         // console.log(fileData);
-        let data = fileData.split(',')[1];
-        let buff = new Buffer(data, 'base64');
-        let text = buff.toString('ascii');
+        let text = ""
+        if(isBase64){
+            let data = fileData.split(',')[1];
+            let buff = new Buffer(data, 'base64');
+            text = buff.toString('ascii');    
+        } else {
+            text = fileData
+        }
 
         // console.log(text);
+
         let counter = 0;
         let differentHashes = 0;
         let alreadyCrackedCount = 0;
@@ -137,16 +378,48 @@ async function processUpload(fileName, fileData){
 
         })
         if(totalHashes.length > 0){
-            const hashFileID = HashFiles.insert({name:fileName,hashCount:0,crackCount:0,uploadDate:date})
-            // NEED TO ADD HASHES
+            // console.log(JSON.stringify(totalHashes))
+            // return
+            let hashFileId = ''
+            let hashFileUploadJobID = ''
+            if(isBase64) {
+                hashFileID = HashFiles.insert({name:fileName,hashCount:0,crackCount:0,uploadDate:date})
+                hashFileUploadJobID = HashFileUploadJobs.insert({name:fileName,uploadStatus:20,hashFileID:hashFileID,description:"Optimizing DB Load"})
+            } else {
+                hashFileID = providedID
+                let hashFileUploadJob = HashFileUploadJobs.findOne({"hashFileID":hashFileID})
+                hashFileUploadJobID = hashFileUploadJob._id
+                HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:20,description:"Optimizing DB Load"}})
+            }
+            // Want to optimize DB load...
+            /*
+                { data: '94F7ED20172A594DC9E57A53BDC260EE',                
+                meta: { username: [ 'FAKEDOMAIN\\105' ], type: 'NTLM' } }
+            */
+           let hashDict = {};
             _.each(totalHashes, (hashesToAdd) => {
                 _.each(hashesToAdd,(hash)=>{
+                   if(hashDict[`${hash.data}-${hash.meta.type}`]){
+                        hashDict[`${hash.data}-${hash.meta.type}`].meta.username = hashDict[`${hash.data}-${hash.meta.type}`].meta.username.concat(hash.meta.username)
+                   } else {
+                        hashDict[`${hash.data}-${hash.meta.type}`] = hash
+                   }
+                })
+            })
+            // console.log(`Original Hash Length: ${totalHashes.length}`)
+            // console.log(`Hash Dict Length: ${Object.keys(hashDict).length}`)
+            HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:25,description:"Adding Hashes to DB"}})
+            // NEED TO ADD HASHES
+            let dictKeys = Object.keys(hashDict)
+            _.each(dictKeys, (dictKey) => {
+                // _.each(hashesToAdd,(hash)=>{
+                    let hash = hashDict[dictKey]
                     let newUsername = false;
                     let newFile = false;
                     hash.meta.source = [hashFileID];
                     // console.log(JSON.stringify(hash))
                     // Check if we already have the exact hash - source, account, and data are all the same
-                    let storedHash = Hashes.findOne({data:{$eq:hash.data}})
+                    let storedHash = Hashes.findOne({$and:[{data:{$eq:hash.data}},{'meta.type':hash.meta.type}]})
                     // If we already have the hash,
                     if(storedHash) {
                         // console.log(JSON.stringify(storedHash))
@@ -164,6 +437,7 @@ async function processUpload(fileName, fileData){
                         let usernameKey = `meta.username.${hashFileID}`
                         if(newUsername && newFile)
                         {
+                            console.log("newName and newFile")
                             // First username vs new username for already added source
                             if(typeof storedHash.meta.username[hashFileID] === 'undefined') {
                                 updatedValue = Hashes.update({"_id":storedHash._id},{$set:{[usernameKey]:hash.meta.username,'meta.source':storedHash.meta.source.concat(hash.meta.source)}});
@@ -175,6 +449,7 @@ async function processUpload(fileName, fileData){
                         }
                         else if(newUsername && !newFile)
                         {
+                            console.log("newName and !newFile")
                             // First username vs new username for already added source
                             if(typeof storedHash.meta.username[hashFileID] === 'undefined') {
                                 updatedValue = Hashes.update({"_id":storedHash._id},{$set:{[usernameKey]:hash.meta.username}});
@@ -185,34 +460,43 @@ async function processUpload(fileName, fileData){
                         }
                         else if(!newUsername && newFile)
                         {
+                            console.log("!newName and !newFile")
                             updatedValue = Hashes.update({"_id":storedHash._id},{$set:{'meta.source':storedHash.meta.source.concat(hash.meta.source)}});
                         }
                         // if(!updatedValue){
                         //     throw Error("Error inserting hash into database");
                         // }
-                        counter += 1;
+                        counter += hash.meta.username.length;
 
                     } else {
                         // If we didn't have the hash we add it if it isn't the blank lm/ntlm hash
-                        if(hash.data !== "aad3b435b51404eeaad3b435b51404ee" && hash.data !== "31d6cfe0d16ae931b73c59d7e0c089c0"){
-                            let usernames = hash.meta.username
-                            delete hash.meta.username
-                            hash.meta.username = { [hashFileID]: usernames }
-                            // console.log(JSON.stringify(hash))
-                            let insertedVal = Hashes.insert(hash);
-                            if(!insertedVal){
-                                throw Error("Error inserting hash into database");
-                            }
-                            counter +=1
-                            differentHashes += 1
+                        // if(hash.data !== "aad3b435b51404eeaad3b435b51404ee" && hash.data !== "31d6cfe0d16ae931b73c59d7e0c089c0"){
+                        let usernames = hash.meta.username
+                        let usernameLegth = hash.meta.username.length
+                        delete hash.meta.username
+                        hash.meta.username = { [hashFileID]: usernames }
+                        // console.log(JSON.stringify(hash))
+                        let insertedVal = Hashes.insert(hash);
+                        if(!insertedVal){
+                            throw Error("Error inserting hash into database");
                         }
+                        counter += usernameLegth
+                        differentHashes += 1
+                        // }
 
                     }
-                })
+                    if(differentHashes % 100 === 0) {
+                        let val = ((differentHashes/dictKeys.length)*50) + 45
+                        HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:val}})
+                    }
+                // })
             })
+            // console.log(`hashCount: ${counter} distinct:${differentHashes} cracked: ${alreadyCrackedCount}`)
             HashFiles.update({_id:hashFileID},{$set:{hashCount:counter, distinctCount:differentHashes, crackCount:alreadyCrackedCount}});
+            HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:95,description:"Calculating Statistics"}})
+
             // Calculate Cracked stats if we already have info...
-            let $match = {$and:[{'meta.cracked':true},{'meta.source':`${hashFileID}`}]};
+            let $match = {$and:[{'meta.cracked':true},{'meta.source':`${hashFileID}`},{'data':{$not:/^31D6CFE0D16AE931B73C59D7E0C089C0$/}},{'data':{$not:/^AAD3B435B51404EEAAD3B435B51404EE$/}}]};
             let $project = {"length":{$strLenCP:"$meta.plaintext"}}
             let $group = {_id:"$length",count:{$sum:1}}
             let $sort = {_id:1}
@@ -232,43 +516,49 @@ async function processUpload(fileName, fileData){
                         $sort
                         }
                     ]).toArray();
-                    //console.log(stats);
+                    // console.log(stats);
                     //return orderedItems;
                     HashFiles.update({"_id":`${hashFileID}`},{$set:{'passwordLengthStats':stats}})
-                })();
+                    HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:97}})
+                })().then(() => {
+                    // Calcualte reuse stats
+                    let hashFileUsersKey = `$meta.username.${hashFileID}`
+                    $match = {$and: [{'meta.source':hashFileID},{'data':{$not:/^31D6CFE0D16AE931B73C59D7E0C089C0$/}},{'data':{$not:/^AAD3B435B51404EEAAD3B435B51404EE$/}}]};
+                    $project = {"hash":"$data","count":{$size:[hashFileUsersKey]}}
+                    $sort = {count:-1}
+                    try {
+                        (async () => {
+                            const stats = await Hashes.rawCollection().aggregate([
+                                { 
+                                $match
+                                },
+                                {
+                                $project, 
+                                },
+                                {
+                                $sort
+                                },
+                                {
+                                $limit:20
+                                }
+                            ]).toArray();
+                            //console.log(stats);
+                            //return orderedItems;
+                            HashFiles.update({"_id":`${hashFileID}`},{$set:{'passwordReuseStats':stats,uploadStatus:100}})
+                        })();
+
+                    } catch (err) {
+                    throw new Meteor.Error('E1234', err.message);
+                    }
+                    HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:100,description:"File Uploaded Successfully"}})
+                    // TODO: Move Remove of HashFileUploadJobs where the uploadStatus == 100 to a cron every 5 minutes
+                    // HashFileUploadJobs.remove({"_id":hashFileUploadJobID})
+                });
             
             } catch (err) {
             throw new Meteor.Error('E1234', err.message);
             }
-            // Calcualte reuse stats
-            let hashFileUsersKey = `$meta.username.${hashFileID}`
-            $match = {'meta.source':hashFileID};
-            $project = {"hash":"$data","count":{$size:[hashFileUsersKey]}}
-            $sort = {count:-1}
-            try {
-                (async () => {
-                    const stats = await Hashes.rawCollection().aggregate([
-                        { 
-                        $match
-                        },
-                        {
-                        $project, 
-                        },
-                        {
-                        $sort
-                        },
-                        {
-                        $limit:20
-                        }
-                    ]).toArray();
-                    //console.log(stats);
-                    //return orderedItems;
-                    HashFiles.update({"_id":`${hashFileID}`},{$set:{'passwordReuseStats':stats}})
-                })();
             
-            } catch (err) {
-            throw new Meteor.Error('E1234', err.message);
-            }
         }
         else {
             throw Error("No valid hashes parsed from upload, please open an issue on GitHub");
@@ -286,13 +576,15 @@ async function processGroupsUpload(fileName, fileData, hashFileID){
     let buff = new Buffer(data, 'base64');
     let text = buff.toString('ascii');
     let usersInGroup = []
-    //console.log(hashFileID)
+    // console.log(`Hashfile is ${hashFileID}`)
     let group = fileName.replace(".txt","")
 
     _.each(text.split('\n'), (line) => {
-        usersInGroup.push(line.trim())
+        if(line.length > 0) {
+            usersInGroup.push(line.trim())
+        }
     })
-    //console.log(usersInGroup)
+    // console.log(usersInGroup)
     // We have the hashFileID, the Key (filename) for groups, and the Value (usersInGroup array)
     let theHashFile = HashFiles.findOne({"_id":hashFileID})
     if(theHashFile){
@@ -401,7 +693,7 @@ async function processGroupsUpload(fileName, fileData, hashFileID){
                 let totalHashes = usersInGroup.length
                 let crackedTotal = 0
                 let crackedUsers = []
-                let passReuseStats = {}
+                let passReuseStats = []
                 let crackedStatOverview = []
                 // console.log(lookupKey)
                 let hashesForUsers = Hashes.find({[lookupKey]:{$in:usersInGroup}}).fetch()
@@ -409,18 +701,25 @@ async function processGroupsUpload(fileName, fileData, hashFileID){
                 if(hashesForUsers.length > 0){
                 // console.log(hashesForUsers);
                 _.each(hashesForUsers, (userHash) => {
+                    // console.log(userHash)
+                    let hashContent = userHash.data;
                     if(typeof userHash.meta.cracked !== 'undefined' && userHash.meta.cracked) {
-                        let filteredUsersLength = _.filter(userHash.meta.username[hashFileID], function(val){
-                            return usersInGroup.includes(val);
-                        })
-                        // passReuseStats[userHash.data] = userHash.meta.username[hashFileID].length
-                        passReuseStats[userHash.data] = filteredUsersLength.length
+                        hashContent = userHash.meta.plaintext 
+                    }
+                    let filteredUsersLength = _.filter(userHash.meta.username[hashFileID], function(val){
+                        return usersInGroup.includes(val);
+                    })
+                    // passReuseStats[userHash.data] = userHash.meta.username[hashFileID].length
+                    if(filteredUsersLength.length > 1){
+                        passReuseStats.push({"_id":`${userHash._id}`,"hash":hashContent,"count": filteredUsersLength.length})
+                    }
+                    if(typeof userHash.meta.cracked !== 'undefined' && userHash.meta.cracked) {
                         crackedTotal += filteredUsersLength.length
                         _.each(filteredUsersLength, (crackedAccount) => {
                             crackedUsers.push(crackedAccount)
                             // console.log(crackedAccount)
                         })
-                    }
+                    }                    
                 })
                 crackedStatOverview.push({
                     "name":"Cracked",
@@ -544,7 +843,7 @@ async function processGroupsUpload(fileName, fileData, hashFileID){
                 let totalHashes = usersInGroup.length
                 let crackedTotal = 0
                 let crackedUsers = []
-                let passReuseStats = {}
+                let passReuseStats = []
                 let crackedStatOverview = []
                 // console.log(lookupKey)
                 let hashesForUsers = Hashes.find({[lookupKey]:{$in:usersInGroup}}).fetch()
@@ -552,18 +851,25 @@ async function processGroupsUpload(fileName, fileData, hashFileID){
                 if(hashesForUsers.length > 0){
                 // console.log(hashesForUsers);
                 _.each(hashesForUsers, (userHash) => {
+                    // console.log(userHash)
+                    let hashContent = userHash.data;
                     if(typeof userHash.meta.cracked !== 'undefined' && userHash.meta.cracked) {
-                        let filteredUsersLength = _.filter(userHash.meta.username[hashFileID], function(val){
-                            return usersInGroup.includes(val);
-                        })
-                        // passReuseStats[userHash.data] = userHash.meta.username[hashFileID].length
-                        passReuseStats[userHash.data] = filteredUsersLength.length
+                        hashContent = userHash.meta.plaintext 
+                    }
+                    let filteredUsersLength = _.filter(userHash.meta.username[hashFileID], function(val){
+                        return usersInGroup.includes(val);
+                    })
+                    // passReuseStats[userHash.data] = userHash.meta.username[hashFileID].length
+                    if(filteredUsersLength.length > 1){
+                        passReuseStats.push({"_id":`${userHash._id}`,"hash":hashContent,"count": filteredUsersLength.length})
+                    }
+                    if(typeof userHash.meta.cracked !== 'undefined' && userHash.meta.cracked) {
                         crackedTotal += filteredUsersLength.length
                         _.each(filteredUsersLength, (crackedAccount) => {
                             crackedUsers.push(crackedAccount)
                             // console.log(crackedAccount)
                         })
-                    }
+                    }                    
                 })
                 crackedStatOverview.push({
                     "name":"Cracked",
@@ -686,26 +992,33 @@ async function processGroupsUpload(fileName, fileData, hashFileID){
             let totalHashes = usersInGroup.length
             let crackedTotal = 0
             let crackedUsers = []
-            let passReuseStats = {}
+            let passReuseStats = []
             let crackedStatOverview = []
             // console.log(lookupKey)
             let hashesForUsers = Hashes.find({[lookupKey]:{$in:usersInGroup}}).fetch()
-            // console.log(hashesForUsers)
+            // console.log(`Hashes for group ${hashesForUsers}`)
             if(hashesForUsers.length > 0){
             // console.log(hashesForUsers);
             _.each(hashesForUsers, (userHash) => {
+                // console.log(userHash)
+                let hashContent = userHash.data;
                 if(typeof userHash.meta.cracked !== 'undefined' && userHash.meta.cracked) {
-                    let filteredUsersLength = _.filter(userHash.meta.username[hashFileID], function(val){
-                        return usersInGroup.includes(val);
-                    })
-                    // passReuseStats[userHash.data] = userHash.meta.username[hashFileID].length
-                    passReuseStats[userHash.data] = filteredUsersLength.length
+                    hashContent = userHash.meta.plaintext 
+                }
+                let filteredUsersLength = _.filter(userHash.meta.username[hashFileID], function(val){
+                    return usersInGroup.includes(val);
+                })
+                // passReuseStats[userHash.data] = userHash.meta.username[hashFileID].length
+                if(filteredUsersLength.length > 1){
+                    passReuseStats.push({"_id":`${userHash._id}`,"hash":hashContent,"count": filteredUsersLength.length})
+                }
+                if(typeof userHash.meta.cracked !== 'undefined' && userHash.meta.cracked) {
                     crackedTotal += filteredUsersLength.length
                     _.each(filteredUsersLength, (crackedAccount) => {
                         crackedUsers.push(crackedAccount)
                         // console.log(crackedAccount)
                     })
-                }
+                }                    
             })
             crackedStatOverview.push({
                 "name":"Cracked",
@@ -840,7 +1153,7 @@ function deleteHashesFromID(id){
 
 Meteor.methods({
     async uploadHashData(fileName,fileData) {
-        processUpload(fileName, fileData);
+        processUpload(fileName, fileData, true, '');
         return true;
     },
 
@@ -886,7 +1199,7 @@ Meteor.methods({
                 const uuidv4 = require('uuid/v4');
                 const randomVal = uuidv4();
                 _.each(hashTypes, (type) => {
-                    let hashes = Hashes.find({$and:[{$or:queryDoc},{'meta.type':{$eq: type}},{'meta.plaintext':{$exists:false}}]},{fields:{data:1}}).fetch()
+                    let hashes = Hashes.find({$and:[{$or:queryDoc},{'meta.type':{$eq: type}},{'meta.plaintext':{$exists:false}},{'data':{$not:/^31D6CFE0D16AE931B73C59D7E0C089C0$/}},{'data':{$not:/^AAD3B435B51404EEAAD3B435B51404EE$/}}]},{fields:{data:1}}).fetch()
                     let hashArray = [];
                     _.each(hashes, (hash) => {
                         hashArray.push(hash.data)
@@ -923,10 +1236,11 @@ Meteor.methods({
                 let crackJobID = HashCrackJobs.insert({uuid:randomVal,types:hashTypes,status:'Hashes Uploaded',sources:fileIDArray, duration:data.duration, instanceType:properInstanceType,availabilityZone:data.availabilityZone})
                 if(crackJobID){
                     // We will add .25 to the rate chosen, and will allow this to be user controlled eventually...
-                    //sudo systemctl stop sshd.service
-                    // sudo systemctl disable sshd.service
+
                     let price = (parseFloat(data.rate) + 0.25).toFixed(2)
                     let userDataString = `#!/bin/bash
+sudo systemctl stop sshd.service
+sudo systemctl disable sshd.service
 sudo DEBIAN_FRONTEND=noninteractive apt-get -yq update
 sudo DEBIAN_FRONTEND=noninteractive apt-get -yq install build-essential linux-headers-$(uname -r) unzip p7zip-full linux-image-extra-virtual 
 sudo DEBIAN_FRONTEND=noninteractive apt-get -yq install python3-pip
@@ -983,24 +1297,37 @@ cp /home/ubuntu/Hob0Rules/wordlists/english.txt ./english.txt
 cat \\$(find . -iname "*.txt") | uniq -u > /home/ubuntu/COMBINED-PASS.txt 
 cd /home/ubuntu
 `
+
+let bruteMask = ""
+// if there is a bruteLimit generate the mask for hashcat to use
+if(data.bruteLimit !== "0" && data.bruteLimit !== "") {
+    let count = parseInt(data.bruteLimit,10)
+    for(let i = 0; i<count; i++){
+        bruteMask += "?a"
+    }
+}
+
 if(hashTypes.includes("NTLM")){
     userDataString +=`
     # download file from s3
     aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.NTLM.credentials .
     aws s3 rm s3://${awsSettings.bucketName}/${randomVal}.NTLM.credentials
-    
     `
     // Building towards basic and advanced cracking
     // temporarily removed from end:
-
-    userDataString += `
-    sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 0 -m 1000 /home/ubuntu/${randomVal}.NTLM.credentials /home/ubuntu/COMBINED-PASS.txt -r /home/ubuntu/Hob0Rules/d3adhob0.rule -o crackedNTLM.txt -O -w 3 &
-    while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; do aws s3 cp /home/ubuntu/hashcat.status s3://${awsSettings.bucketName}/${randomVal}.status; sleep 30; done
-    rm /home/ubuntu/hashcat.status
-    sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 3 -m 1000 /home/ubuntu/${randomVal}.NTLM.credentials -o brute7.txt -i ?a?a?a?a?a?a?a -O -w 3 &
-    while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; do aws s3 cp /home/ubuntu/hashcat.status s3://${awsSettings.bucketName}/${randomVal}.status; sleep 30; done
-    rm /home/ubuntu/hashcat.status
-    `
+    if(data.useDictionaries) {
+        userDataString += `
+        sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 0 -m 1000 /home/ubuntu/${randomVal}.NTLM.credentials /home/ubuntu/COMBINED-PASS.txt -r /home/ubuntu/Hob0Rules/d3adhob0.rule -o crackedNTLM.txt -O -w 3 &
+        while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; do aws s3 cp /home/ubuntu/hashcat.status s3://${awsSettings.bucketName}/${randomVal}.status; sleep 30; done
+        rm /home/ubuntu/hashcat.status`
+    }
+    if(data.bruteLimit !== "0" && data.bruteLimit !== "") {
+        userDataString += `
+        sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 3 -m 1000 /home/ubuntu/${randomVal}.NTLM.credentials -o brute.txt -i ${bruteMask} -O -w 3 &
+        while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; do aws s3 cp /home/ubuntu/hashcat.status s3://${awsSettings.bucketName}/${randomVal}.status; sleep 30; done
+        rm /home/ubuntu/hashcat.status
+        `
+    }
 }
 
 if(hashTypes.includes("LM")){
@@ -1008,17 +1335,21 @@ if(hashTypes.includes("LM")){
     # download file from s3
     aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.LM.credentials .
     aws s3 rm s3://${awsSettings.bucketName}/${randomVal}.LM.credentials
-    
     `
     // Building towards basic and advanced cracking
-    userDataString += `    
-    sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 0 -m 3000 /home/ubuntu/${randomVal}.LM.credentials /home/ubuntu/COMBINED-PASS.txt -r /home/ubuntu/Hob0Rules/d3adhob0.rule -o crackedLM.txt -O -w 3
-    while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; do aws s3 cp ./hashcat.status s3://${awsSettings.bucketName}/${randomVal}.status; sleep 30; done
-    rm /home/ubuntu/hashcat.status
-    sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 3 -m 3000 /home/ubuntu/${randomVal}.LM.credentials -o brute7.txt -i ?a?a?a?a?a?a?a -O -w 3
-    while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; do aws s3 cp ./hashcat.status s3://${awsSettings.bucketName}/${randomVal}.status; sleep 30; done
-    rm /home/ubuntu/hashcat.status
-    `
+    if(data.useDictionaries) {
+        userDataString += `    
+        sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 0 -m 3000 /home/ubuntu/${randomVal}.LM.credentials /home/ubuntu/COMBINED-PASS.txt -r /home/ubuntu/Hob0Rules/d3adhob0.rule -o crackedLM.txt -O -w 3
+        while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; do aws s3 cp ./hashcat.status s3://${awsSettings.bucketName}/${randomVal}.status; sleep 30; done
+        rm /home/ubuntu/hashcat.status`
+    }
+    if(data.bruteLimit !== "0" && data.bruteLimit !== "") {
+        userDataString += `
+        sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 3 -m 3000 /home/ubuntu/${randomVal}.LM.credentials -o brute.txt -i ${bruteMask} -O -w 3
+        while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; do aws s3 cp ./hashcat.status s3://${awsSettings.bucketName}/${randomVal}.status; sleep 30; done
+        rm /home/ubuntu/hashcat.status
+        `
+    }
 }
 // Logic for character swap
 // #while read line; do echo -n $line | cut -d ':' -f1 | tr -d '\n'; echo -n ":"; echo $line | cut -d':' -f2 | sed -e 's/[A-Z]/U/g' -e's/[a-z]/l/g' -e 's/[0-9]/0/g' -e 's/[[:punct:]]/*/g'; done < ./hashcat-5.1.0/hashcat.potfile
@@ -1033,16 +1364,17 @@ if [ -f ./hashcat-5.1.0/hashcat.potfile ]
 then
 echo "Finishing Up..." > ./status.txt
 aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
+cat ./hashcat-5.1.0/hashcat.potfile | sed -e 's/ /\\[space\\]/g' > ./hashcat-5.1.0/hashcat.potfile.nospaces
 
-while read line; do echo -n \\$(echo \\$line | cut -d':' -f1 | tr -d '\\n') >> new.potfile; echo -n \":\" >> new.potfile; hit=\\$(egrep -l \"^\\$(echo \\$line | cut -d':' -f2)$\" \\$(find ./SecLists/Passwords/ -iname \"*.txt\") | tr '\\n' ','); if [ \"\\$hit\" != \"\" ]; then echo -n \"\\$(echo \\$line | cut -d':' -f2):\" >> new.potfile; echo \"\\$hit\" >> new.potfile;else echo -n \"\\$(echo \\$line | cut -d':' -f2)\" >> new.potfile; echo \":\" >> new.potfile; fi; done <./hashcat-5.1.0/hashcat.potfile
+while read line; do echo -n \\$(echo \\$line | cut -d':' -f1 | tr -d '\\n') >> new.potfile; echo -n \":\" >> new.potfile; hit=\\$(egrep -l \"^\\$(echo \\$line | cut -d':' -f2)$\" \\$(find ./SecLists/Passwords/ -iname \"*.txt\") | tr '\\n' ','); if [ \"\\$hit\" != \"\" ]; then echo -n \"\\$(echo \\$line | cut -d':' -f2):\" >> new.potfile; echo \"\\$hit\" >> new.potfile;else echo -n \"\\$(echo \\$line | cut -d':' -f2)\" >> new.potfile; echo \":\" >> new.potfile; fi; done < ./hashcat-5.1.0/hashcat.potfile.nospaces
 `
 if(redactionValue.redactionCharacter){
     userDataString += `
-    while read line; do echo -n \\$line | cut -d ':' -f1 | tr -d '\\n' >> ./new2.potfile; echo -n \":\" >> ./new2.potfile; echo -n \\$line | cut -d':' -f2 | sed -e 's/[A-Z]/U/g' -e's/[a-z]/l/g' -e 's/[0-9]/0/g' -e 's/[[:punct:]]/*/g' | tr -d '\\n' >> ./new2.potfile; echo -n \":\" >> ./new2.potfile; echo \\$line | cut -d':' -f3 >> ./new2.potfile; done < ./new.potfile
+    while read line; do echo -n \\$line | cut -d ':' -f1 | tr -d '\\n' >> ./new2.potfile; echo -n \":\" >> ./new2.potfile; echo -n \\$line | cut -d':' -f2 | sed -e 's/\\[space\\]/ /g' -e 's/[A-Z]/U/g' -e's/[a-z]/l/g' -e 's/[0-9]/0/g' -e 's/[[:punct:]]/*/g' | tr -d '\\n' >> ./new2.potfile; echo -n \":\" >> ./new2.potfile; echo \\$line | cut -d':' -f3 >> ./new2.potfile; done < ./new.potfile
     `
 } else if(redactionValue.redactionLength) {
     userDataString += `
-    while read line; do echo -n \\$line | cut -d ':' -f1 | tr -d '\\n' >> ./new2.potfile; echo -n \":\" >> ./new2.potfile; echo -n \\$line | cut -d':' -f2 | sed -e 's/[A-Z]/*/g' -e's/[a-z]/*/g' -e 's/[0-9]/*/g' -e 's/[[:punct:]]/*/g' | tr -d '\\n' >> ./new2.potfile; echo -n \":\" >> ./new2.potfile; echo \\$line | cut -d':' -f3 >> ./new2.potfile; done < ./new.potfile
+    while read line; do echo -n \\$line | cut -d ':' -f1 | tr -d '\\n' >> ./new2.potfile; echo -n \":\" >> ./new2.potfile; echo -n \\$line | cut -d':' -f2 | sed -e 's/\\[space\\]/ /g' -e 's/[A-Z]/*/g' -e's/[a-z]/*/g' -e 's/[0-9]/*/g' -e 's/[[:punct:]]/*/g' | tr -d '\\n' >> ./new2.potfile; echo -n \":\" >> ./new2.potfile; echo \\$line | cut -d':' -f3 >> ./new2.potfile; done < ./new.potfile
 `
 } else if(redactionValue.redactionFull){ 
     userDataString += `
@@ -1191,5 +1523,103 @@ sudo reboot`;
         HashFiles.update({"_id":hashFileID},{$unset:{[key]:""}})
         return true;
     },
+
+    async configurePasswordPolicy(hashFileID, policyDoc){
+        try {
+            HashFiles.update({"_id":hashFileID},{$set:{"passwordPolicy":policyDoc}})
+            // after configuring policy we now need to find all cracked hashes for the hash file and evaluate the meta.plaintextStats
+            // of each hash against the policy to find an array of 'violatesPolicy' passwords and store it on the hash file
+            let crackedHashes = Hashes.find({$and:[{"meta.source":hashFileID},{'meta.cracked':true}]}).fetch()
+            let violations = []
+
+            if(crackedHashes.length > 0){
+                _.each(crackedHashes, (hash) => {
+                    
+                    let textToEvaluate = hash.meta.plaintext
+                    if(textToEvaluate.includes('[space]')){
+                        textToEvaluate = textToEvaluate.replace(/\[space\]/g," ")
+                    }
+                    let wasInvalid = false
+                    if(policyDoc.hasLengthRequirement === true){
+                        if(textToEvaluate.length < policyDoc.lengthRequirement)
+                        {
+                            violations.push(hash._id)
+                            wasInvalid = true
+                        }
+                    }
+                    if(!wasInvalid && policyDoc.hasUpperRequirement  === true){
+                        if((textToEvaluate.match(/[A-Z]/g) || []).length < policyDoc.upperRequirement)
+                        {
+                            violations.push(hash._id)
+                            wasInvalid = true
+                        }
+                    }
+                    if(!wasInvalid && policyDoc.hasLowerRequirement === true){
+                        if((textToEvaluate.match(/[a-z]/g) || []).length < policyDoc.lowerRequirement)
+                        {
+                            violations.push(hash._id)
+                            wasInvalid = true
+                        }
+                    }
+                    if(!wasInvalid && policyDoc.hasSymbolsRequirement === true){
+                        if((textToEvaluate.match(/[-!$%^&*()@_+|~=`{}\[\]:";'<>?,.\/\ ]/g) || []).length < policyDoc.symbolsRequirement)
+                        {
+                            violations.push(hash._id)
+                            wasInvalid = true
+                        }
+                    }
+                    if(!wasInvalid && policyDoc.hasNumberRequirement === true){
+                        if((textToEvaluate.match(/[0-9]/g) || []).length < policyDoc.numberRequirement)
+                        {
+                            violations.push(hash._id)
+                            wasInvalid = true
+                        }
+                    }
+                    if(!wasInvalid && policyDoc.hasUsernameRequirement === true){
+                        _.each(hash.meta.username[hashFileID], (username) => {
+                            if(!wasInvalid){
+                                let accountName = username
+                                let domainName = ""
+                                if(username.includes("\\")){
+                                    let splitVal = username.split("\\")
+                                    accountName = splitVal[1]
+                                    domainName = splitVal[0]
+                                }
+                                if(!wasInvalid && domainName !== ""){
+                                    if(textToEvaluate.toLowerCase().includes(domainName.toLowerCase())){
+                                        violations.push(hash._id)
+                                        wasInvalid = true
+                                    }
+                                }
+                                if(!wasInvalid && accountName !== ""){
+                                    if(textToEvaluate.toLowerCase().includes(accountName.toLowerCase())){
+                                        violations.push(hash._id)
+                                        wasInvalid = true
+                                    }
+                                }
+                            }        
+                        })
+                    }
+
+                })
+            }
+            HashFiles.update({"_id":hashFileID},{$set:{'policyViolations':violations}})
+            // _.each(violations, (hashID) => {
+            //     let theHash = Hashes.findOne({"_id":hashID})
+            //     if(typeof theHash.meta.violatesPolicy === 'undefined'){
+            //         Hashes.update({"_id":hashID},{$set:{'meta.violatesPolicy':[hashFileID]}})
+            //     } else {
+            //         if(!theHash.meta.violatesPolicy.includes(hashFileID)){
+            //             let newViolationsArray = theHash.meta.violatesPolicy.push(hashFileID)
+            //             Hashes.update({"_id":hashID},{$set:{'meta.violatesPolicy':newViolationsArray}})
+            //         }
+            //     }
+            // })
+
+        } catch(err){
+            throw new Meteor.Error('E1234',err.message);
+        }
+        return true;
+    }
     
 });

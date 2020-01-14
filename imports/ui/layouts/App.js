@@ -9,10 +9,12 @@ import { BrowserRouter as Router, Switch } from 'react-router-dom';
 
 // import navbar
 import Navbar from '../components/Navbar';
-
+import { ToastContainer } from 'react-toastify';
+ 
 // import routes
 import Landing from '../pages/Landing';
 import Report from '../pages/Report';
+import HashFileDetails from '../pages/HashFileDetails';
 import Login from '../pages/Login';
 import Signup from '../pages/Signup';
 import Profile from '../pages/Profile';
@@ -31,6 +33,7 @@ import PropsRoute from '../pages/PropsRoute';
 const App = props => {
   return (
   <Router>
+    <ToastContainer />
     <div>
       <PropsRoute component={Navbar} {...props} />
       {props.loggingIn && <Spinner />}
@@ -39,8 +42,8 @@ const App = props => {
         <PropsRoute exact path="/admin" component={Admin} {...props} />
         <PropsRoute path="/login" component={Login} {...props} />
         <PropsRoute path="/signup" component={Signup} {...props} />
+        <PropsRoute exact path="/file/:_ids" component={HashFileDetails} {...props} />
         <PropsRoute exact path="/report/:_ids" component={Report} {...props} />
-
         <PropsRoute exact path="/profile" component={Profile} {...props} />
         <PropsRoute exact path="/profile/:_id" component={Profile} {...props} />
         <PropsRoute

@@ -171,7 +171,7 @@ class Report extends React.Component {
       crackedStatOverview.push({
         "name":"Uncracked",
         "label":"Uncracked",
-        "value":totalTotal-crackedTotal
+        "value":uniqueTotal-crackedTotal
       })
       // ids contains the potential list of hashFiles to analyze
       let uploadGroupsClicked = () => {

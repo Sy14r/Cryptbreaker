@@ -93,6 +93,13 @@ if (Meteor.isServer) {
     return this.ready();
   });
 
+  Meteor.publish('hashCrackJobs.running', function() {
+    if (this.userId) {    
+      return HashCrackJobs.find({status:{$ne: "Job Completed"}});
+    }
+    return this.ready();
+  });
+
 
   // example friends publication
   // Meteor.publish('users.friends', function() {

@@ -8,12 +8,15 @@ import TableCell from "@material-ui/core/TableCell";
 import VPNKeyIcon from "@material-ui/icons/VpnKey";
 import PolicyIcon from '@material-ui/icons/Policy';
 import Assessment from "@material-ui/icons/Assessment";
-import ImportExportIcon from "@material-ui/icons/ImportExportRounded"
+import ImportExportIcon from "@material-ui/icons/ImportExportRounded";
+import PauseCircleFilledIcon from '@material-ui/icons/PauseCircleFilled';
+import PlayCircleFilledIcon from '@material-ui/icons/PlayCircleFilled';
 import Tooltip from "@material-ui/core/Tooltip";
 import LinearProgress from '@material-ui/core/LinearProgress';
 import { createMuiTheme, MuiThemeProvider } from '@material-ui/core/styles';
 import { Hashes, HashFiles, HashCrackJobs } from '/imports/api/hashes/hashes.js';
 import CustomToolbarSelect from "./CustomToolbarSelect";
+import CustomToolbarSelectCrackJobs from "./CustomToolbarSelectCrackJobs";
 import ReactDOM from 'react-dom';
 import { AWSCOLLECTION } from '/imports/api/aws/aws.js'
 import Spinner from '/imports/ui/components/Spinner';
@@ -80,6 +83,217 @@ class Landing extends React.Component {
     // console.log(event._targetInst.pendingProps.rowid)
     // console.log(event._targetInst.stateNode.ownerSVGElement.getAttribute('rowid'))
     return
+  };
+
+  handleJobPause = () => {
+    let id = ''
+    if(typeof event.target.getAttribute('rowid') === 'string'){
+      id = event.target.getAttribute('rowid')
+    } else if (event._targetInst){
+      if(typeof event._targetInst.pendingProps.rowid === 'string') {
+        id = event._targetInst.pendingProps.rowid
+      } else {
+        id = event._targetInst.stateNode.ownerSVGElement.getAttribute('rowid')
+      }
+    } else if (typeof event.target.ownerSVGElement.getAttribute('rowid') === 'string'){
+      id = event.target.ownerSVGElement.getAttribute('rowid')
+    } else {
+      console.log(event)
+      return
+    }
+    // let id = event.target.getAttribute('rowid') ? event.target.getAttribute('rowid') : (event._targetInst.pendingProps.rowid ? event._targetInst.pendingProps.rowid : event._targetInst.stateNode.ownerSVGElement.getAttribute('rowid'))
+    Meteor.call('pauseCrackJob',id, (err) =>   {
+      if(typeof err !== 'undefined'){
+        // If we had an error...
+        Swal.fire({
+        title: 'Could not pause job requested',
+        type: 'error',
+        showConfirmButton: false,
+        toast:true,
+        position:'top-right',
+        timer:3000,
+        animation:false,
+        })
+      } else {
+        Swal.fire({
+        title: 'Job pausing...',
+        type: 'success',
+        showConfirmButton: false,
+        toast:true,
+        position:'top-right',
+        timer:3000,
+        animation:false,
+        })
+      }
+  })
+
+    return
+  };
+
+  handleJobResume = () => {
+    let id = ''
+    if(typeof event.target.getAttribute('rowid') === 'string'){
+      id = event.target.getAttribute('rowid')
+    } else if (event._targetInst){
+      if(typeof event._targetInst.pendingProps.rowid === 'string') {
+        id = event._targetInst.pendingProps.rowid
+      } else {
+        id = event._targetInst.stateNode.ownerSVGElement.getAttribute('rowid')
+      }
+    } else if (typeof event.target.ownerSVGElement.getAttribute('rowid') === 'string'){
+      id = event.target.ownerSVGElement.getAttribute('rowid')
+    } else {
+      console.log(event)
+      return
+    }
+    let instanceType = '';
+    let duration = 1;
+    // Before cracking hashes... we ned to ask a few questions (instance type decision, maximum price willing to pay/hour, time to run (in hours) )
+    // First refresh the known spot prices...
+    Swal.fire({
+        title: 'Retrieving Price Data',
+        text: 'Please wait while we retrieve the latest Spot Pricing information',
+        type: 'info',
+        animation:false,
+        showConfirmButton:false,
+      })
+    Meteor.call('getSpotPricing', (err, res)=>{
+        if(err){
+          Swal.fire({
+            title: 'Spot Price Check Failed',
+            text:err.details,
+            type: 'error',
+            animation:false,
+            showConfirmButton:true,
+          })
+        }
+        else {
+          // console.log(this)
+          Swal.fire({
+            title: 'Pricing Data Updated',
+            text:this.props.awsPricing[0].data,
+            type: 'success',
+            animation:false,
+            showConfirmButton:true,
+            confirmButtonText:"Continue",
+          })
+          let inputOptions = {
+          }
+          for (let [key, value] of Object.entries(this.props.awsPricing[0].data)) {
+            // console.log(`${key}: ${value}`);
+            if(key === 'p3_2xl'){
+                inputOptions.p3_2xl = `${key} - $${value.cheapest}/hr (${value.az})`
+            } 
+            else if(key === 'p3_8xl'){
+                inputOptions.p3_8xl = `${key} - $${value.cheapest}/hr (${value.az})`
+            } 
+            else if(key === 'p3_16xl'){
+                inputOptions.p3_16xl = `${key} - $${value.cheapest}/hr (${value.az})`
+            } 
+            else if(key === 'p3dn_24xl'){
+                inputOptions.p3dn_24xl = `${key} - $${value.cheapest}/hr (${value.az})`
+            } 
+          } 
+          Swal.fire({
+            title: 'Select an Instance Type',
+            input: 'select',
+            // inputOptions: {
+            //   apples: 'Apples',
+            //   bananas: 'Bananas',
+            //   grapes: 'Grapes',
+            //   oranges: 'Oranges'
+            // },
+            inputOptions: inputOptions,
+            inputPlaceholder: 'Instance Type',
+            showCancelButton: true,
+            // inputValidator: (value) => {
+            //   return new Promise((resolve) => {
+            //     if (value === 'oranges') {
+            //       resolve()
+            //     } else {
+            //       resolve('You need to select oranges :)')
+            //     }
+            //   })
+            // }
+          }).then((result) => {
+            // console.log(result);
+            if (result.value) {
+                let rate = ''
+                if(result.value === 'p3_2xl'){
+                    rate = this.props.awsPricing[0].data.p3_2xl.cheapest
+                } 
+                else if(result.value === 'p3_8xl'){
+                    rate = this.props.awsPricing[0].data.p3_8xl.cheapest
+                } 
+                else if(result.value === 'p3_16xl'){
+                    rate = this.props.awsPricing[0].data.p3_16xl.cheapest
+                } 
+                else if(result.value === 'p3dn_24xl'){
+                    rate = this.props.awsPricing[0].data.p3dn_24xl.cheapest
+                } 
+                instanceType = result.value;
+                // Here is the more detailed prompt for no redaction/class level/length
+                Swal.fire({
+                  title: 'Verify Choices before Queuing',
+                  html: `<p>You have selected to resume cracking with an <b>${instanceType}</b> instance at a rate of <b>$${rate}/hr</b></p>`+
+                  `<p>In order to ensure that our bid is met we will add <b>$0.25</b> to the current spot price for a maximum hourly rate of <b>$${(parseFloat(rate)+.25).toFixed(2)}</b></p>`+
+                  `<p>If this is correct please press launch below, otherwise cancel</p>`,
+                  type: 'warning',
+                  animation:false,
+                  showConfirmButton:true,
+                  showCancelButton:true,
+                  confirmButtonText:"Resume",        
+              }).then((result) =>{
+                  if(result.value){
+                    let location = ''
+                    let rate = ''
+                    if(instanceType === 'p3_2xl'){
+                        location = this.props.awsPricing[0].data.p3_2xl.az
+                        rate = this.props.awsPricing[0].data.p3_2xl.cheapest
+                    } 
+                    else if(instanceType === 'p3_8xl'){
+                        location = this.props.awsPricing[0].data.p3_8xl.az
+                        rate = this.props.awsPricing[0].data.p3_8xl.cheapest
+                    } 
+                    else if(instanceType === 'p3_16xl'){
+                        location = this.props.awsPricing[0].data.p3_16xl.az
+                        rate = this.props.awsPricing[0].data.p3_16xl.cheapest
+                    } 
+                    else if(instanceType === 'p3dn_24xl'){
+                        location = this.props.awsPricing[0].data.p3dn_24xl.az
+                        rate = this.props.awsPricing[0].data.p3dn_24xl.cheapest
+                    } 
+                Meteor.call('resumeCrack',{id:id,instanceType:instanceType, availabilityZone:location, rate:rate}, (err) =>   {
+                  if(typeof err !== 'undefined'){
+                    // If we had an error...
+                    Swal.fire({
+                    title: 'Could not crack hash files requested',
+                    type: 'error',
+                    showConfirmButton: false,
+                    toast:true,
+                    position:'top-right',
+                    timer:3000,
+                    animation:false,
+                    })
+                  } else {
+                    Swal.fire({
+                    title: 'hashes queued for cracking',
+                    type: 'success',
+                    showConfirmButton: false,
+                    toast:true,
+                    position:'top-right',
+                    timer:3000,
+                    animation:false,
+                    })
+                  }
+              })
+                
+            }
+          })
+        }
+      }) 
+    }})
+
   };
 
   handleClickPolicy = () => {
@@ -196,7 +410,7 @@ class Landing extends React.Component {
           })
         }
         else {
-          console.log(this)
+          // console.log(this)
           Swal.fire({
             title: 'Pricing Data Updated',
             text:this.props.awsPricing[0].data,
@@ -507,7 +721,7 @@ class Landing extends React.Component {
         if(dataToDownloadLM.length > 2) {
           var element = document.createElement('a');
           element.setAttribute('href', 'data:text/plaintext;charset=utf-8,' + encodeURIComponent(dataToDownloadLM));
-          element.setAttribute('download', `${id}-LM-Uncracked.txt`);
+          element.setAttribute('download', `${id}-Uncracked.lm`);
 
           element.style.display = 'none';
           document.body.appendChild(element);
@@ -519,7 +733,7 @@ class Landing extends React.Component {
         if(dataToDownloadNTLM.length > 2) {
           var element = document.createElement('a');
           element.setAttribute('href', 'data:text/plaintext;charset=utf-8,' + encodeURIComponent(dataToDownloadNTLM));
-          element.setAttribute('download', `${id}-NTLM-Uncracked.txt`);
+          element.setAttribute('download', `${id}-Uncracked.ntlm`);
 
           element.style.display = 'none';
           document.body.appendChild(element);
@@ -645,13 +859,13 @@ class Landing extends React.Component {
             filter:true,
           },
         },
-        {
-          name: "duration",
-          label:"Duration",
-          options:{
-            filter:false,
-          },
-        },
+        // {
+        //   name: "duration",
+        //   label:"Duration",
+        //   options:{
+        //     filter:false,
+        //   },
+        // },
         {
           name: "instanceType",
           label:"Instance Type",
@@ -665,7 +879,14 @@ class Landing extends React.Component {
           options:{
             filter:false,
           },
-        }      
+        },
+        {
+          name:"actions",
+          label:"Actions",
+          options:{
+            filter:false,
+          },
+        }        
       ];
   
       let data = HashFiles.find().fetch();
@@ -705,6 +926,22 @@ class Landing extends React.Component {
             item.status = "Upgrading and Installing Necessary Software"
           }
         }
+        if(item.status.includes("remaining")) {
+          item.actions = 
+          <>
+            <Tooltip rowid={item._id} title={"Pause Job"}>
+              <PauseCircleFilledIcon  rowid={item._id} onClick={this.handleJobPause} />
+            </Tooltip>
+          </>   
+        } else if(item.status === "Job Paused"){
+          item.actions = 
+          <>
+            <Tooltip rowid={item._id} title={"Resume Job"}>
+              <PlayCircleFilledIcon  rowid={item._id} onClick={this.handleJobResume} />
+            </Tooltip>
+          </>
+        }
+        
       })
       // _.each(data,(item) => {
       //   item.uploadDate = item.uploadDate.toLocaleString().split(',')[0];
@@ -781,221 +1018,6 @@ class Landing extends React.Component {
         viewColumns:false,
         expandableRows: false,
         expandableRowsOnClick: false,
-        renderExpandableRow: (rowData, rowMeta) => {
-          let fileUploadProcessing = false
-          _.each(this.props.hashFileUploadJobs, (hashUploadJob) => {
-            if(hashUploadJob.uploadStatus >= 0 && hashUploadJob.uploadStatus < 100 && hashUploadJob.hashFileID === rowData[0]){
-              fileUploadProcessing = true
-            }
-          })
-          let innerData = Hashes.find({'meta.source':rowData[0]}).fetch()
-          let rowSourceID = rowData[0];
-          _.each(innerData, (item) => {
-            // console.log(item)
-            if(item.meta.cracked === true){
-              item.cracked = "yes"
-            } else {
-              item.cracked = "no"
-            }
-            if(typeof item.meta.lists !== 'undefined'){
-              // if we have lists
-              item.meta.inLists = "yes"
-            } else {
-              item.meta.inLists = "no"
-            }
-          })
-
-          let innerOptions = {
-            download:true,
-            onDownload:  (buildHead, buildBody, columns,data) => {
-              
-              const realHandleDownload = async (buildHead, buildBody, columns,data, htmlValues, valuesCount) => {
-                // first have UI popup similar to the 'start crack' flow
-                
-                const { value: formValues } = await Swal.fire({
-                  title: 'Choose Columns to Export',
-                  html: htmlValues,
-                  focusConfirm: false,
-                  preConfirm: () => {
-                    let values = []
-                    let i;
-                    for (i = 0; i < htmlAndIndex[1]; i++) {
-                      let element = document.getElementById(`swal-input${i}`)
-                      values.push({value: element.value, isChecked: element.checked})
-                    }
-                    return values
-                  }
-                })
-                
-                if (formValues) {
-                  const replaceDoubleQuoteInString = columnData =>
-                  typeof columnData === 'string' ? columnData.replace(/\"/g, '""') : columnData;
-
-                  const getArrayContents = columnData => {
-                    if (typeof columnData === 'object'){                
-                      return Object.values(columnData).join(",")
-                    } else {
-                      return columnData;
-                    }
-                  }
-
-                  let newColumns = columns
-                  _.forEach(newColumns, (column) => {
-                    _.forEach(formValues, (value) => {
-                      if(value.value === column.label) {
-                        column.download = value.isChecked
-                      }
-                    })
-                  })
-                  
-                  let reducedData = data.reduce(
-                    (soFar, row) => 
-                      soFar +
-                      '"' +
-                      row.data
-                        .filter((_, index) => columns[index].download)
-                        .map(columnData => getArrayContents(columnData))
-                        .map(columnData => replaceDoubleQuoteInString(columnData))
-                        .join('"' + ',' + '"') +
-                      '"\r\n',
-                    '',
-                  ).trim()
-                  
-                  //console.log(columns)
-                  //console.log(`reducedData ${reducedData}`)
-                  // return false;
-                  var element = document.createElement('a');
-                  element.setAttribute('href', 'data:text/csv;charset=utf-8,' + encodeURIComponent(buildHead(newColumns) + reducedData));
-                  element.setAttribute('download', "export.csv");
-
-                  element.style.display = 'none';
-                  document.body.appendChild(element);
-
-                  element.click();
-
-                  document.body.removeChild(element);
-                  // return buildHead(columns) + reducedData;
-                }
-              }
-
-              const generateOptions = (columns) => {
-                let htmlValues = '<div id="generatedSwalSelection">'
-                let index = 0
-                  // '<input id="swal-input1" class="swal2-check">' +
-                  // '<input id="swal-input2" class="swal2-input">'
-                _.forEach(columns, (column) => {
-                  htmlValues += `<div class="dataExportOption"><input type="checkbox" id="swal-input${index}" value="${column.label}" checked>${column.label}</input></div>`
-                  index++
-                })
-                htmlValues += '</div>'
-                return [htmlValues, index]
-              }
-
-              let htmlAndIndex = generateOptions(columns)
-              realHandleDownload(buildHead, buildBody, columns,data, htmlAndIndex[0], htmlAndIndex[1])              
-              return false;
-            },
-            downloadOptions: {
-              filterOptions:{
-                useDisplayedRowsOnly:true
-              }
-            },
-            filter:true,
-            print:false,
-            viewColumns:false,
-          }
-  
-          if(Roles.userIsInRole(Meteor.userId(), 'admin')){
-            innerOptions.searchText = this.state.searchText
-            innerOptions.customSearch = (searchQuery, currentRow, columns) => {
-              let isFound = false;
-              //custom 'filter:' logic
-              if(searchQuery.toLowerCase().split(':').length > 1 && searchQuery.toLowerCase().split(':')[0] == 'filter'){
-                // passLength query
-                if(searchQuery.toLowerCase().split(':')[1].includes('password.length')){
-                  if(currentRow[2] == "yes" && currentRow[3].length > 0){
-                    let splitVal = searchQuery.toLowerCase().split(':')[1].split(' ')
-                    if(splitVal.length > 2){
-                      if(["<",">","==","<=",">="].includes(splitVal[1])){
-                        switch(splitVal[1]){
-                          case "<":
-                            if(currentRow[3].length < splitVal[2]) {
-                              isFound = true
-                            }
-                            break
-                          case ">":
-                            if(currentRow[3].length > splitVal[2]) {
-                              isFound = true
-                            }
-                            break
-                          case "<=":
-                            if(currentRow[3].length <= splitVal[2]) {
-                              isFound = true
-                            }
-                            break
-                          case ">=":
-                            if(currentRow[3].length >= splitVal[2]) {
-                              isFound = true
-                            }
-                            break
-                          case "==":
-                            if(currentRow[3].length == splitVal[2]) {
-                              isFound = true
-                            }
-                            break
-                        }
-                      }
-                    }
-                    // console.log(currentRow[3])
-                  }
-                }
-              } 
-              currentRow.forEach(col => {
-                if(typeof col !== 'undefined'){
-                  //if (col.toString().indexOf(searchQuery) >= 0) {
-                  if (JSON.stringify(col).indexOf(searchQuery) >= 0) {
-                      isFound = true;
-                  }
-                }
-              });
-              return isFound;
-            },
-            innerOptions.expandableRows = true
-            innerOptions.expandableRowsOnClick= true
-            innerOptions.renderExpandableRow = (rowData, rowMeta) => {
-              // console.log(rowData)
-              return(
-                <TableRow>
-                  <TableCell style={{padding:'2em'}} colSpan={colSpan}>
-                    { rowData[4][0] === "" ? (null) : (<><h4>Users</h4>{rowData[4][rowSourceID].map((user, i) => <p style={{paddingBottom:'.5em', marginBottom:'0em'}} >{user}</p>)}</>)}
-                    {rowData[2] === "yes" ? (<><h4>Password:</h4><p style={{paddingBottom:'0em', marginBottom:'0em'}} >{rowData[3]}</p> </>) : (<><h4>Password:</h4><p style={{paddingBottom:'0em', marginBottom:'0em'}} >Not Yet Cracked</p> </>)}
-                    {rowData[6] === "yes" ? (<><h4>Lists:</h4>{rowData[5].map((list, i) => <p style={{paddingBottom:'.5em', marginBottom:'0em'}} >{list}</p>)}</>) : (null)}
-                  </TableCell>
-                </TableRow>
-              )
-              
-            }
-          }
-  
-          const colSpan = rowData.length + 1;
-          
-          return (
-            <TableRow>
-              <TableCell style={{padding:'2em'}} colSpan={colSpan}>
-                {/* <h4>Affected Hosts:</h4> */}
-                <MuiThemeProvider theme={getMuiTheme()}>
-                  <MUIDataTable
-                      title={"Hashes"}
-                      data={innerData}
-                      columns={innerColumns}
-                      options={innerOptions}
-                      fullWidth
-                    />
-                </MuiThemeProvider>
-              </TableCell>
-            </TableRow>
-          );
-        },
         customToolbarSelect: (selectedRows, displayData, setSelectedRows) => (
           <CustomToolbarSelect selectedRows={selectedRows} displayData={displayData} setSelectedRows={setSelectedRows} pricing={this.props.awsPricing}  />
         ),
@@ -1005,9 +1027,10 @@ class Landing extends React.Component {
       
       const hcjOptions = {
         download:false,
-        filter:true,
+        filter:false,
         print:false,
         viewColumns:false,
+        search:false,
         onRowClick: (rowData, rowState) => {
 
           if(rowData[1].toLowerCase().includes("configure spot instances")) {
@@ -1030,7 +1053,10 @@ class Landing extends React.Component {
           })
            
           }
-        }
+        },
+        customToolbarSelect: (selectedRows, displayData, setSelectedRows) => (
+          <CustomToolbarSelectCrackJobs selectedRows={selectedRows} displayData={displayData} setSelectedRows={setSelectedRows}  />
+        ),
       };
 
       return (

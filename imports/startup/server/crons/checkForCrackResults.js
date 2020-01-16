@@ -213,6 +213,10 @@ function processPotfile(filename, s3Obj, job){
                             let regex = new RegExp("^" + splitVal[0].toLowerCase(), "i") 
                             // Increment the counter for how many cracked hashes there are for ntlm...
                             let hash = Hashes.find({"data":regex}).fetch()
+                            let hashPreviouslyCracked = false
+                            if(typeof hash[0].meta !== 'undefined' && typeof hash[0].meta.cracked !== 'undefined' && hash[0].meta.cracked === true) {
+                                hashPreviouslyCracked = true
+                            }
                             //console.log(`RAW LINE: ${JSON.stringify(splitVal)}`)
                             let update
                             let textToEvaluate = splitVal[1]
@@ -237,13 +241,14 @@ function processPotfile(filename, s3Obj, job){
                                 throw new Meteor.Error(500,"500 Internal Server Error","Unable to update plaintext in processPotfile function")
                             }   
                             // console.log("HASH CRACKED NTLM")
-
-                            _.each(hash[0].meta.source, (source) => {
-                                let hashFile = HashFiles.find({"_id":source}).fetch()
-                                // console.log(hashFile)
-                                let newCount = hashFile[0].crackCount + 1
-                                HashFiles.update({"_id":hashFile[0]._id},{$set:{'crackCount':newCount}})
-                            })
+                            if(!hashPreviouslyCracked){
+                                _.each(hash[0].meta.source, (source) => {
+                                    let hashFile = HashFiles.find({"_id":source}).fetch()
+                                    // console.log(hashFile)
+                                    let newCount = hashFile[0].crackCount + 1
+                                    HashFiles.update({"_id":hashFile[0]._id},{$set:{'crackCount':newCount}})
+                                })
+                            }                            
                         } else if(splitVal[0].length === 16) {
                             hadLMHash = true
                             // LM hash for current support -- NEED TO ADD LOGIC FOR LM HASHES AND PASSWORD LISTS...
@@ -377,7 +382,12 @@ function processPotfile(filename, s3Obj, job){
                     if (err) console.log(err, err.stack); // an error occurred
                     else {
                         bound(() => {
-                            HashCrackJobs.update({"_id":job._id},{$set:{'status':'Job Completed'}})
+                            if(typeof job.requestedPause !== 'undefined' && job.requestedPause === true){
+                                HashCrackJobs.update({"_id":job._id},{$set:{'status':'Job Paused'}})
+
+                            } else {
+                                HashCrackJobs.update({"_id":job._id},{$set:{'status':'Job Completed'}})
+                            }
                         })
                     }   
                   });  
@@ -723,10 +733,18 @@ function updateJobFromStatus(filename, s3Obj, job){
                 // else {
                     //console.log("NOT SESSION DATA")
                 // }
-                let update = HashCrackJobs.update({"_id":job._id},{$set:{'status':`${content}`}})
-                if(!update){
-                    throw new Meteor.Error(500,"500 Internal Server Error","Unable to update status of job in updateJobFromStatus function")
-                }            
+                if(typeof job.requestedPause !== 'undefined' && job.requestedPause === true && content.startsWith("Pausing")){
+                    let update = HashCrackJobs.update({"_id":job._id},{$set:{'status':`${content}`,'stepPaused':`${content}`}})
+                    if(!update){
+                        throw new Meteor.Error(500,"500 Internal Server Error","Unable to update status of job in updateJobFromStatus function")
+                    }  
+                } else {
+                    let update = HashCrackJobs.update({"_id":job._id},{$set:{'status':`${content}`}})
+                    if(!update){
+                        throw new Meteor.Error(500,"500 Internal Server Error","Unable to update status of job in updateJobFromStatus function")
+                    }  
+                }
+                          
                 return true
             }
         })
@@ -746,7 +764,7 @@ function checkForCrackResults() {
         let awsSettings = AWSCOLLECTION.findOne({'type':'settings'})
 
         // For each of the submittedNotComplete check to see if the potfile exists for the correcponding UUID
-        let submittedNotComplete = HashCrackJobs.find({$and:[{'status':{$not:/^Job Complete/}},{'status':{$not:/^Job Failed/}}]}).fetch()
+        let submittedNotComplete = HashCrackJobs.find({$and:[{'status':{$not:/^Job Complete/}},{'status':{$not:/^Job Failed/}},{'status':{$not:/^Job Pause/}}]}).fetch()
         let params = {}
         _.each(submittedNotComplete, (job) => {
             // First check if the last spotRequest status was 

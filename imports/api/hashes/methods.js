@@ -17,6 +17,36 @@ import _ from 'lodash';
 
 const bound = Meteor.bindEnvironment((callback) => {callback();});
 
+function deleteAllFilesWithPrefix(prefix, s3obj){
+    let awsSettings = AWSCOLLECTION.findOne({'type':"settings"})
+    let params = {
+        Bucket:`${awsSettings.bucketName}`,
+        Prefix: prefix
+    }
+    s3obj.listObjects(params, function(err, data) {
+        bound(() => {
+            if (err) console.log(err, err.stack); // an error occurred
+            else {        
+                _.each(data.Contents, (result) => {
+                    // filename is result.Key
+                    // Once we've updated all the plaintext we can delete the S3 object
+                    let params = {
+                        Bucket: `${awsSettings.bucketName}`,
+                        Key: result.Key
+                    }
+                    s3obj.deleteObject(params, function(err, data) {
+                        if (err) console.log(err, err.stack); // an error occurred
+                        // else {
+                        //     bound(() => {
+                        //         HashCrackJobs.update({"_id":job._id},{$set:{'status':'Job Completed'}})
+                        //     })
+                        // }   
+                    });                                    
+                })
+            }   
+        })
+    })
+}
 
 function generateHashesFromLine(line) {
     let hashes = [];
@@ -50,7 +80,6 @@ function generateHashesFromLine(line) {
         }        
     }
     // NEED TO ADD LOGIC HERE FOR NON HASHDUMP FORMATTED OUTPUT...
-
     return hashes;
 }
 
@@ -339,6 +368,202 @@ async function processNTDSZip(fileName, fileData, date){
       
 }
 
+async function processRawHashFile(fileName, fileData, date){
+    let data = fileData.split(',')[1];
+    let buff = new Buffer(data, 'base64');
+    let text = buff.toString('ascii');
+    let differentHashes = 0;
+    let alreadyCrackedCount = 0;
+    let totalHashes = [];
+    let hashType = fileName.split(".")[1].toUpperCase()
+    _.each(text.split('\n'), (line) => {
+        if(line.length > 0 && !line.startsWith("#")){
+            totalHashes.push({
+                data:line.trim().toUpperCase(),
+                meta:{
+                    username: [],
+                    type: hashType
+            }})        
+        }
+    })
+    if(totalHashes.length > 0){
+        // console.log(JSON.stringify(totalHashes))
+        // return
+        let hashFileID = HashFiles.insert({name:fileName,hashCount:0,crackCount:0,uploadDate:date})
+        let hashFileUploadJobID = HashFileUploadJobs.insert({name:fileName,uploadStatus:20,hashFileID:hashFileID,description:"Optimizing DB Load"})
+        let hashDict = {};
+        let counter = 0
+        _.each(totalHashes,(hash)=>{
+            if(hashDict[`${hash.data}-${hash.meta.type}`]){
+                hashDict[`${hash.data}-${hash.meta.type}`].meta.username = hashDict[`${hash.data}-${hash.meta.type}`].meta.username.concat(hash.meta.username)
+            } else {
+                hashDict[`${hash.data}-${hash.meta.type}`] = hash
+            }
+        })
+        // console.log(`Original Hash Length: ${totalHashes.length}`)
+        // console.log(`Hash Dict Length: ${Object.keys(hashDict).length}`)
+        HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:25,description:"Adding Hashes to DB"}})
+        // NEED TO ADD HASHES
+        let dictKeys = Object.keys(hashDict)
+        _.each(dictKeys, (dictKey) => {
+            // _.each(hashesToAdd,(hash)=>{
+                let hash = hashDict[dictKey]
+                let newUsername = false;
+                let newFile = false;
+                hash.meta.source = [hashFileID];
+                // console.log(JSON.stringify(hash))
+                // Check if we already have the exact hash - source, account, and data are all the same
+                let storedHash = Hashes.findOne({$and:[{data:{$eq:hash.data}},{'meta.type':hash.meta.type}]})
+                // If we already have the hash,
+                if(storedHash) {
+                    // console.log(JSON.stringify(storedHash))
+                    // If we have the hash but from a different upload or for a different user then we update the existing hash entry   
+                    if(storedHash.meta.cracked) {
+                        alreadyCrackedCount += 1;
+                    }
+                    if(typeof storedHash.meta.username[hashFileID] === 'undefined' || !storedHash.meta.username[hashFileID].includes(hash.meta.username[0])){
+                        newUsername = true
+                    }
+                    if(!storedHash.meta.source.includes(hash.meta.source[0])){
+                        newFile = true
+                    }
+                    // let updatedValue;
+                    let usernameKey = `meta.username.${hashFileID}`
+                    if(newUsername && newFile)
+                    {
+                        // First username vs new username for already added source
+                        if(typeof storedHash.meta.username[hashFileID] === 'undefined') {
+                            updatedValue = Hashes.update({"_id":storedHash._id},{$set:{[usernameKey]:hash.meta.username,'meta.source':storedHash.meta.source.concat(hash.meta.source)}});
+                        } else {
+                            updatedValue = Hashes.update({"_id":storedHash._id},{$set:{[usernameKey]:storedHash.meta.username[hashFileID].concat(hash.meta.username),'meta.source':storedHash.meta.source.concat(hash.meta.source)}});
+                        }
+                        differentHashes += 1
+
+                    }
+                    else if(newUsername && !newFile)
+                    {
+                        // First username vs new username for already added source
+                        if(typeof storedHash.meta.username[hashFileID] === 'undefined') {
+                            updatedValue = Hashes.update({"_id":storedHash._id},{$set:{[usernameKey]:hash.meta.username}});
+
+                        } else {
+                            updatedValue = Hashes.update({"_id":storedHash._id},{$set:{[usernameKey]:storedHash.meta.username[hashFileID].concat(hash.meta.username)}});
+                        }
+                    }
+                    else if(!newUsername && newFile)
+                    {
+                        updatedValue = Hashes.update({"_id":storedHash._id},{$set:{'meta.source':storedHash.meta.source.concat(hash.meta.source)}});
+                    }
+                    // if(!updatedValue){
+                    //     throw Error("Error inserting hash into database");
+                    // }
+                    if(hash.meta.username.length === 0){
+                        counter += 1;
+
+                    } else {
+                        counter += hash.meta.username.length;
+                    }
+
+                } else {
+                    // If we didn't have the hash we add it if it isn't the blank lm/ntlm hash
+                    // if(hash.data !== "aad3b435b51404eeaad3b435b51404ee" && hash.data !== "31d6cfe0d16ae931b73c59d7e0c089c0"){
+                    let usernames = hash.meta.username
+                    let usernameLegth = hash.meta.username.length
+                    delete hash.meta.username
+                    hash.meta.username = { [hashFileID]: usernames }
+                    // console.log(JSON.stringify(hash))
+                    let insertedVal = Hashes.insert(hash);
+                    if(!insertedVal){
+                        throw Error("Error inserting hash into database");
+                    }
+                    if(usernameLegth === 0){
+                        counter += 1;
+
+                    } else {
+                        counter += usernameLegth;
+                    }
+                    differentHashes += 1
+                    // }
+
+                }
+                if(differentHashes % 100 === 0) {
+                    let val = ((differentHashes/dictKeys.length)*50) + 45
+                    HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:val}})
+                }
+            // })
+        })
+        // console.log(`hashCount: ${counter} distinct:${differentHashes} cracked: ${alreadyCrackedCount}`)
+        HashFiles.update({_id:hashFileID},{$set:{hashCount:counter, distinctCount:differentHashes, crackCount:alreadyCrackedCount}});
+        HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:95,description:"Calculating Statistics"}})
+
+        // Calculate Cracked stats if we already have info...
+        let $match = {$and:[{'meta.cracked':true},{'meta.source':`${hashFileID}`},{'data':{$not:/^31D6CFE0D16AE931B73C59D7E0C089C0$/}},{'data':{$not:/^AAD3B435B51404EEAAD3B435B51404EE$/}}]};
+        let $project = {"length":{$strLenCP:"$meta.plaintext"}}
+        let $group = {_id:"$length",count:{$sum:1}}
+        let $sort = {_id:1}
+        try {
+            (async () => {
+                const stats = await Hashes.rawCollection().aggregate([
+                    { 
+                    $match
+                    },
+                    {
+                    $project, 
+                    },
+                    {
+                    $group,
+                    },
+                    {
+                    $sort
+                    }
+                ]).toArray();
+                // console.log(stats);
+                //return orderedItems;
+                HashFiles.update({"_id":`${hashFileID}`},{$set:{'passwordLengthStats':stats}})
+                HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:97}})
+            })().then(() => {
+                // Calcualte reuse stats
+                let hashFileUsersKey = `$meta.username.${hashFileID}`
+                $match = {$and: [{'meta.source':hashFileID},{'data':{$not:/^31D6CFE0D16AE931B73C59D7E0C089C0$/}},{'data':{$not:/^AAD3B435B51404EEAAD3B435B51404EE$/}}]};
+                $project = {"hash":"$data","count":{$size:[hashFileUsersKey]}}
+                $sort = {count:-1}
+                try {
+                    (async () => {
+                        const stats = await Hashes.rawCollection().aggregate([
+                            { 
+                            $match
+                            },
+                            {
+                            $project, 
+                            },
+                            {
+                            $sort
+                            },
+                            {
+                            $limit:20
+                            }
+                        ]).toArray();
+                        //console.log(stats);
+                        //return orderedItems;
+                        HashFiles.update({"_id":`${hashFileID}`},{$set:{'passwordReuseStats':stats,uploadStatus:100}})
+                    })();
+
+                } catch (err) {
+                throw new Meteor.Error('E1234', err.message);
+                }
+                HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:100,description:"File Uploaded Successfully"}})
+                // TODO: Move Remove of HashFileUploadJobs where the uploadStatus == 100 to a cron every 5 minutes
+                // HashFileUploadJobs.remove({"_id":hashFileUploadJobID})
+            });
+        
+        } catch (err) {
+        throw new Meteor.Error('E1234', err.message);
+        }
+        
+    }
+    return
+}
+
 async function processUpload(fileName, fileData, isBase64, providedID){
     const date = new Date();
     // console.log(`Tasked to delete following account\n${this.userId}`);
@@ -350,6 +575,14 @@ async function processUpload(fileName, fileData, isBase64, providedID){
         // console.log("POTFILE UPLOAD")
         // console.log("NEED TO PROCESS ZIP")
         processNTDSZip(fileName,fileData, date)     
+    } else if(fileName.endsWith('.lm') && isBase64) {
+        // console.log("POTFILE UPLOAD")
+        // console.log("NEED TO PROCESS ZIP")
+        processRawHashFile(fileName,fileData, date)     
+    } else if(fileName.endsWith('.ntlm') && isBase64) {
+        // console.log("POTFILE UPLOAD")
+        // console.log("NEED TO PROCESS ZIP")
+        processRawHashFile(fileName,fileData, date)     
     } else { 
         // console.log("'Normal' Upload")
         // console.log(isBase64)
@@ -437,7 +670,6 @@ async function processUpload(fileName, fileData, isBase64, providedID){
                         let usernameKey = `meta.username.${hashFileID}`
                         if(newUsername && newFile)
                         {
-                            console.log("newName and newFile")
                             // First username vs new username for already added source
                             if(typeof storedHash.meta.username[hashFileID] === 'undefined') {
                                 updatedValue = Hashes.update({"_id":storedHash._id},{$set:{[usernameKey]:hash.meta.username,'meta.source':storedHash.meta.source.concat(hash.meta.source)}});
@@ -449,7 +681,6 @@ async function processUpload(fileName, fileData, isBase64, providedID){
                         }
                         else if(newUsername && !newFile)
                         {
-                            console.log("newName and !newFile")
                             // First username vs new username for already added source
                             if(typeof storedHash.meta.username[hashFileID] === 'undefined') {
                                 updatedValue = Hashes.update({"_id":storedHash._id},{$set:{[usernameKey]:hash.meta.username}});
@@ -460,13 +691,17 @@ async function processUpload(fileName, fileData, isBase64, providedID){
                         }
                         else if(!newUsername && newFile)
                         {
-                            console.log("!newName and !newFile")
                             updatedValue = Hashes.update({"_id":storedHash._id},{$set:{'meta.source':storedHash.meta.source.concat(hash.meta.source)}});
                         }
                         // if(!updatedValue){
                         //     throw Error("Error inserting hash into database");
                         // }
-                        counter += hash.meta.username.length;
+                        if(hash.meta.username.length === 0){
+                            counter += 1;
+    
+                        } else {
+                            counter += hash.meta.username.length;
+                        }
 
                     } else {
                         // If we didn't have the hash we add it if it isn't the blank lm/ntlm hash
@@ -480,7 +715,12 @@ async function processUpload(fileName, fileData, isBase64, providedID){
                         if(!insertedVal){
                             throw Error("Error inserting hash into database");
                         }
-                        counter += usernameLegth
+                        if(usernameLegth === 0){
+                            counter += 1;
+    
+                        } else {
+                            counter += usernameLegth;
+                        }
                         differentHashes += 1
                         // }
 
@@ -1233,10 +1473,14 @@ Meteor.methods({
                         break
                 }
                 // console.log(data);
-                let crackJobID = HashCrackJobs.insert({uuid:randomVal,types:hashTypes,status:'Hashes Uploaded',sources:fileIDArray, duration:data.duration, instanceType:properInstanceType,availabilityZone:data.availabilityZone})
+                let crackConfigDetails = {
+                    bruteLimit: data.bruteLimit,
+                    useDictionaries: data.useDictionaries,
+                    redactionValue: redactionValue
+                }
+                let crackJobID = HashCrackJobs.insert({uuid:randomVal,types:hashTypes,configDetails:crackConfigDetails,status:'Hashes Uploaded',sources:fileIDArray, duration:data.duration, instanceType:properInstanceType,availabilityZone:data.availabilityZone})
                 if(crackJobID){
                     // We will add .25 to the rate chosen, and will allow this to be user controlled eventually...
-
                     let price = (parseFloat(data.rate) + 0.25).toFixed(2)
                     let userDataString = `#!/bin/bash
 sudo systemctl stop sshd.service
@@ -1317,15 +1561,42 @@ if(hashTypes.includes("NTLM")){
     // temporarily removed from end:
     if(data.useDictionaries) {
         userDataString += `
-        sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 0 -m 1000 /home/ubuntu/${randomVal}.NTLM.credentials /home/ubuntu/COMBINED-PASS.txt -r /home/ubuntu/Hob0Rules/d3adhob0.rule -o crackedNTLM.txt -O -w 3 &
-        while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; do aws s3 cp /home/ubuntu/hashcat.status s3://${awsSettings.bucketName}/${randomVal}.status; sleep 30; done
-        rm /home/ubuntu/hashcat.status`
+        sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 0 -m 1000 --session ${randomVal} /home/ubuntu/${randomVal}.NTLM.credentials /home/ubuntu/COMBINED-PASS.txt -r /home/ubuntu/Hob0Rules/d3adhob0.rule -o crackedNTLM.txt -O -w 3 &
+        while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
+        do 
+            aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.pause /home/ubuntu/hashwrap.pause;
+            if [ -f /home/ubuntu/hashwrap.pause ];
+            then
+                echo "Pausing NTLM Dictionary Attack" > /home/ubuntu/status.txt
+                aws s3 cp /home/ubuntu/status.txt s3://${awsSettings.bucketName}/${randomVal}.status;
+            else
+                aws s3 cp /home/ubuntu/hashcat.status s3://${awsSettings.bucketName}/${randomVal}.status;
+            fi
+            sleep 30; 
+        done
+        rm -f /home/ubuntu/hashcat.status
+        `
     }
     if(data.bruteLimit !== "0" && data.bruteLimit !== "") {
         userDataString += `
-        sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 3 -m 1000 /home/ubuntu/${randomVal}.NTLM.credentials -o brute.txt -i ${bruteMask} -O -w 3 &
-        while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; do aws s3 cp /home/ubuntu/hashcat.status s3://${awsSettings.bucketName}/${randomVal}.status; sleep 30; done
-        rm /home/ubuntu/hashcat.status
+        if [ -f /home/ubuntu/hashwrap.pause ];
+        then
+            echo "Skipping due to pause"        else
+            sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 3 -m 1000 --session ${randomVal} /home/ubuntu/${randomVal}.NTLM.credentials -o brute.txt -i ${bruteMask} -O -w 3 &
+            while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
+            do 
+                aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.pause /home/ubuntu/hashwrap.pause;
+                if [ -f /home/ubuntu/hashwrap.pause ];
+                then
+                    echo "Pausing NTLM Brute Force" > /home/ubuntu/status.txt
+                    aws s3 cp /home/ubuntu/status.txt s3://${awsSettings.bucketName}/${randomVal}.status;        
+                else
+                    aws s3 cp /home/ubuntu/hashcat.status s3://${awsSettings.bucketName}/${randomVal}.status;
+                fi
+                sleep 30; 
+            done
+            rm /home/ubuntu/hashcat.status
+        fi
         `
     }
 }
@@ -1333,21 +1604,59 @@ if(hashTypes.includes("NTLM")){
 if(hashTypes.includes("LM")){
     userDataString +=`
     # download file from s3
-    aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.LM.credentials .
-    aws s3 rm s3://${awsSettings.bucketName}/${randomVal}.LM.credentials
+    if [ -f /home/ubuntu/hashwrap.pause ];
+    then
+        echo "Skipping due to pause"
+    else
+        aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.LM.credentials .
+        aws s3 rm s3://${awsSettings.bucketName}/${randomVal}.LM.credentials
+    fi
     `
     // Building towards basic and advanced cracking
     if(data.useDictionaries) {
-        userDataString += `    
-        sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 0 -m 3000 /home/ubuntu/${randomVal}.LM.credentials /home/ubuntu/COMBINED-PASS.txt -r /home/ubuntu/Hob0Rules/d3adhob0.rule -o crackedLM.txt -O -w 3
-        while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; do aws s3 cp ./hashcat.status s3://${awsSettings.bucketName}/${randomVal}.status; sleep 30; done
-        rm /home/ubuntu/hashcat.status`
+        userDataString += `   
+        if [ -f /home/ubuntu/hashwrap.pause ];
+        then
+            echo "Skipping due to pause"    
+        else 
+            sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 0 -m 3000 --session ${randomVal} /home/ubuntu/${randomVal}.LM.credentials /home/ubuntu/COMBINED-PASS.txt -r /home/ubuntu/Hob0Rules/d3adhob0.rule -o crackedLM.txt -O -w 3
+            while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
+            do 
+                aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.pause /home/ubuntu/hashwrap.pause;
+                if [ -f /home/ubuntu/hashwrap.pause ];
+                then
+                    echo "Pausing LM Dictionary Attack" > /home/ubuntu/status.txt
+                    aws s3 cp /home/ubuntu/status.txt s3://${awsSettings.bucketName}/${randomVal}.status;        
+                else
+                    aws s3 cp /home/ubuntu/hashcat.status s3://${awsSettings.bucketName}/${randomVal}.status;
+                fi
+                sleep 30; 
+            done            
+            rm /home/ubuntu/hashcat.status
+        fi
+        `
     }
     if(data.bruteLimit !== "0" && data.bruteLimit !== "") {
         userDataString += `
-        sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 3 -m 3000 /home/ubuntu/${randomVal}.LM.credentials -o brute.txt -i ${bruteMask} -O -w 3
-        while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; do aws s3 cp ./hashcat.status s3://${awsSettings.bucketName}/${randomVal}.status; sleep 30; done
-        rm /home/ubuntu/hashcat.status
+        if [ -f /home/ubuntu/hashwrap.pause ];
+        then
+            echo "Skipping due to pause"
+        else
+            sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 3 -m 3000 --session ${randomVal} /home/ubuntu/${randomVal}.LM.credentials -o brute.txt -i ${bruteMask} -O -w 3
+            while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
+            do 
+                aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.pause /home/ubuntu/hashwrap.pause;
+                if [ -f /home/ubuntu/hashwrap.pause ];
+                then
+                    echo "Pausing LM Brute Force" > /home/ubuntu/status.txt
+                    aws s3 cp /home/ubuntu/status.txt s3://${awsSettings.bucketName}/${randomVal}.status;        
+                else
+                    aws s3 cp /home/ubuntu/hashcat.status s3://${awsSettings.bucketName}/${randomVal}.status;
+                fi
+                sleep 30; 
+            done
+            rm /home/ubuntu/hashcat.status
+        fi
         `
     }
 }
@@ -1359,10 +1668,22 @@ if(hashTypes.includes("LM")){
 // #while read line; do echo -n $line | cut -d ':' -f1 | tr -d '\n'; echo -n ":"; echo cracked; done < /tmp/fake.potfile
 userDataString += `
 sudo chown ubuntu:ubuntu ./hashcat-5.1.0/hashcat.potfile
+sudo chown ubuntu:ubuntu ./hashcat-5.1.0/${randomVal}.restore
+if [ -f /home/ubuntu/hashwrap.pause ]
+then
+    aws s3 cp /home/ubuntu/hashcat-5.1.0/${randomVal}.restore s3://${awsSettings.bucketName}/${randomVal}.restore
+    aws s3 rm s3://${awsSettings.bucketName}/${randomVal}.pause
+    aws s3 cp /home/ubuntu/${randomVal}.NTLM.credentials s3://${awsSettings.bucketName}/${randomVal}.NTLM.credentials
+    aws s3 cp /home/ubuntu/${randomVal}.LM.credentials s3://${awsSettings.bucketName}/${randomVal}.LM.credentials
+    aws s3 cp /home/ubuntu/COMBINED-PASS.txt s3://${awsSettings.bucketName}/${randomVal}.COMBINED-PASS.txt
+    aws s3 cp /home/ubuntu/Hob0Rules/d3adhob0.rule s3://${awsSettings.bucketName}/${randomVal}.d3adhob0.rule
+    echo "Exfiling Cracked Hashes prior to pause" > ./status.txt
+else
+    echo "Finishing Up..." > ./status.txt
+fi
 # upload files after cracking
 if [ -f ./hashcat-5.1.0/hashcat.potfile ]
 then
-echo "Finishing Up..." > ./status.txt
 aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
 cat ./hashcat-5.1.0/hashcat.potfile | sed -e 's/ /\\[space\\]/g' > ./hashcat-5.1.0/hashcat.potfile.nospaces
 
@@ -1385,7 +1706,12 @@ if(redactionValue.redactionCharacter){
 cp new.potfile new2.potfile`
 }
 userDataString += `
-    if [ -f ./new2.potfile ]; then sleep 1; else echo emptypotfile > ./new2.potfile; fi
+    if [ -f ./new2.potfile ]; 
+    then 
+        sleep 1; 
+    else 
+        echo emptypotfile > ./new2.potfile; 
+    fi
     aws s3 cp ./new2.potfile s3://${awsSettings.bucketName}/${randomVal}.hashcat.potfile
     aws s3 rm s3://${awsSettings.bucketName}/${randomVal}.status
     # Self Terminate on completion
@@ -1444,21 +1770,453 @@ sudo reboot`;
                             var params = {
                                 InstanceCount: 1, 
                                 LaunchSpecification: {
-                                // Will want to get this ARN dynamically in the future (and in fact actually set everything up (roles/etc))
-                                IamInstanceProfile: {
-                                Arn: `${awsSettings.instanceProfile.Arn}`,
-                                }, 
-                                // Hardcoded ubuntu 18.04 64bit AMI
-                                ImageId: imageID, 
-                                InstanceType: properInstanceType, 
-                                Placement: {
-                                // Need to send this in data as well...
-                                AvailabilityZone: chosenAZ
-                                },
-                                UserData: userData, 
+                                    // Will want to get this ARN dynamically in the future (and in fact actually set everything up (roles/etc))
+                                    IamInstanceProfile: {
+                                    Arn: `${awsSettings.instanceProfile.Arn}`,
+                                    }, 
+                                    // Hardcoded ubuntu 18.04 64bit AMI
+                                    ImageId: imageID, 
+                                    InstanceType: properInstanceType, 
+                                    Placement: {
+                                    // Need to send this in data as well...
+                                    AvailabilityZone: chosenAZ
+                                    },
+                                    UserData: userData, 
                                 }, 
                                 SpotPrice: `${price}`, 
                                 Type: "one-time",
+                                // Remove once pause resume finished...
+                            };
+                            //console.log(params);
+                            ec2.requestSpotInstances(params, function(err, data) 
+                            {
+                                bound(() => {
+                                    if (err) {
+                                        // Remove the HashCrackJob and Delete Files from S3
+                                        _.each(hashTypes, (type) => {
+                                            const params = {
+                                                Bucket: `${awsSettings.bucketName}`, // pass your bucket name
+                                                Key: `${randomVal}.${type}.credentials`, 
+                                            };
+                                            s3.deleteObject(params, function(err2, data2) {
+                                                if (err2) console.log(err2, err2.stack); // an error occurred
+                                                else {
+                                                    bound(() => {
+                                                        // Here we have the outer data being what we want
+                                                        if(err.code == "MaxSpotInstanceCountExceeded") {
+                                                            console.log("Need to tell user that they need to request spot instances of this type for all regions that they can")
+                                                            HashCrackJobs.update({uuid:randomVal},{$set:{'status':'Job Failed - Need to Configure Spot Instances in AWS (Click for Details)'}})
+                                                        } else {
+                                                            console.log(`New Error! ${JSON.stringify(err)}`)
+                                                            HashCrackJobs.remove({uuid:randomVal})
+                                                        }
+                                                    })
+                                                }   
+                                              });  
+                                        })
+                                        throw new Meteor.Error(err.statusCode,err.code,err.message); // an error occurred
+                                    }
+                                    else  {
+                                        let update = HashCrackJobs.update({uuid:randomVal},{$set:{spotInstanceRequest:data.SpotInstanceRequests[0]}});
+                                    }    
+                                })
+                            })              
+                      }
+                    return true
+                    
+                        /*
+                        data = {
+                        }
+                        */
+                    })
+                    return true
+                }
+                throw new Meteor.Error(500,'500 Internal Server Error','Error saving HashCrackJob information');
+    
+            }
+            throw new Meteor.Error(401,'401 Unauthorized','Your account does not appear to have AWS credentials configured')
+        }
+        throw new Meteor.Error(401,'401 Unauthorized','Your account is not authorized to crack hashes/hash files')
+    },
+
+    async resumeCrack(data){
+        if(Roles.userIsInRole(Meteor.userId(), ['admin','hashes.crack'])){
+            let creds = AWSCOLLECTION.findOne({type:'creds'})
+            if(creds){
+                let awsSettings = AWSCOLLECTION.findOne({'type':"settings"})
+                if(!awsSettings){
+                    throw new Meteor.Error(500, 'AWS Settings Not Configured','The Application Admin has not run the initial configuration of all AWS resources yet so cracking cannot occur.')
+                }
+                
+                const AWS = require('aws-sdk');
+                AWS.config.credentials = new AWS.Credentials({accessKeyId:creds.accessKeyId, secretAccessKey:creds.secretAccessKey});
+                const s3 = new AWS.S3({
+                    accessKeyId: creds.accessKeyId,
+                    secretAccessKey: creds.secretAccessKey
+                });
+
+                let properInstanceType = ""
+                switch (data.instanceType){
+                    case "p3_2xl":
+                        properInstanceType = "p3.2xlarge"
+                        break
+                    case "p3_8xl":
+                        properInstanceType = "p3.8xlarge"
+                        break
+                    case "p3_16xl":
+                        properInstanceType = "p3.16xlarge"
+                        break
+                    case "p3dn_24xl":
+                        properInstanceType = "p3dn.24xlarge"
+                        break
+                }
+                let theHCJ = HashCrackJobs.findOne({"_id":data.id})               
+
+                if(theHCJ){
+                    let randomVal = theHCJ.uuid
+                    let crackConfigDetails = theHCJ.configDetails
+                    HashCrackJobs.update({"_id":theHCJ._id},{$set:{requestedPause:"false",status:"Resuming Job"}})
+                    // We will add .25 to the rate chosen, and will allow this to be user controlled eventually...
+                    let price = (parseFloat(data.rate) + 0.25).toFixed(2)
+                    let userDataString = `#!/bin/bash
+sudo systemctl stop sshd.service
+sudo systemctl disable sshd.service
+echo "Upgrading and Installing Necessary Software" > ./status.txt
+aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
+
+sudo DEBIAN_FRONTEND=noninteractive apt-get -yq update
+sudo DEBIAN_FRONTEND=noninteractive apt-get -yq install build-essential linux-headers-$(uname -r) unzip p7zip-full linux-image-extra-virtual 
+sudo DEBIAN_FRONTEND=noninteractive apt-get -yq install python3-pip
+pip3 install psutil
+sudo DEBIAN_FRONTEND=noninteractive apt-get -yq install awscli
+
+sudo touch /etc/modprobe.d/blacklist-nouveau.conf
+sudo bash -c "echo 'blacklist nouveau' >> /etc/modprobe.d/blacklist-nouveau.conf"
+sudo bash -c "echo 'blacklist lbm-nouveau' >> /etc/modprobe.d/blacklist-nouveau.conf"
+sudo bash -c "echo 'options nouveau modeset=0' >> /etc/modprobe.d/blacklist-nouveau.conf"
+sudo bash -c "echo 'alias nouveau off' >> /etc/modprobe.d/blacklist-nouveau.conf"
+sudo bash -c "echo 'alias lbm-nouveau off' >> /etc/modprobe.d/blacklist-nouveau.conf"
+
+sudo touch /etc/modprobe.d/nouveau-kms.conf
+sudo bash -c "echo 'options nouveau modeset=0' >>  /etc/modprobe.d/nouveau-kms.conf"
+sudo update-initramfs -u
+
+cat << EOF > /home/ubuntu/driver-and-hashcat-install.sh
+#!/bin/bash
+cd /home/ubuntu
+echo "Configuring Drivers" > status.txt
+aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
+
+wget http://us.download.nvidia.com/tesla/410.104/NVIDIA-Linux-x86_64-410.104.run
+sudo /bin/bash NVIDIA-Linux-x86_64-410.104.run --ui=none --no-questions --silent -X
+
+echo "Installing Hashcat" > status.txt
+aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
+
+wget https://hashcat.net/files/hashcat-5.1.0.7z
+7za x hashcat-5.1.0.7z
+
+git clone https://github.com/Sy14r/HashWrap.git
+chmod +x /home/ubuntu/HashWrap/hashwrap
+
+cd /home/ubuntu
+git clone https://github.com/danielmiessler/SecLists.git
+cd /home/ubuntu/SecLists/Passwords
+rm -f ./Leaked-Databases/rockyou* 
+rm -f ./*/*withcount*
+rm -f ./Leaked-Databases/phpbb-cleaned-up.txt
+rm -f ./Leaked-Databases/youporn2012-raw.txt
+cd /tmp
+tar xvf /home/ubuntu/SecLists/Passwords/SCRABBLE-hackerhouse.tgz
+mv /tmp/SCRABBLE/Merriam-Webster-SCRABBLE-4thEdition.txt /home/ubuntu/SecLists/Passwords/
+cd /home/ubuntu/SecLists/Passwords
+cp /home/ubuntu/Hob0Rules/wordlists/rockyou.txt ./Leaked-Databases/rockyou.txt 
+cp /home/ubuntu/Hob0Rules/wordlists/english.txt ./english.txt 
+
+aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.COMBINED-PASS.txt /home/ubuntu/COMBINED-PASS.txt
+aws s3 rm s3://${awsSettings.bucketName}/${randomVal}.COMBINED-PASS.txt 
+aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.d3adhob0.rule /home/ubuntu/Hob0Rules/d3adhob0.rule
+aws s3 rm s3://${awsSettings.bucketName}/${randomVal}.d3adhob0.rule 
+aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.restore /home/ubuntu/hashcat-5.1.0/${randomVal}.restore
+aws s3 rm s3://${awsSettings.bucketName}/${randomVal}.restore 
+cd /home/ubuntu
+`
+
+let bruteMask = ""
+// if there is a bruteLimit generate the mask for hashcat to use
+if(crackConfigDetails.bruteLimit !== "0" && crackConfigDetails.bruteLimit !== "") {
+    let count = parseInt(crackConfigDetails.bruteLimit,10)
+    for(let i = 0; i<count; i++){
+        bruteMask += "?a"
+    }
+}
+
+if(theHCJ.stepPaused.includes(" NTLM ")){
+    userDataString +=`
+    # download file from s3
+    aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.NTLM.credentials /home/ubuntu/${randomVal}.NTLM.credentials
+    aws s3 rm s3://${awsSettings.bucketName}/${randomVal}.NTLM.credentials
+    `
+    // Building towards basic and advanced cracking
+    // temporarily removed from end:
+    if(theHCJ.stepPaused.includes("NTLM Dictionary")) {
+        userDataString += `       
+        sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin --session ${randomVal} --restore &
+        while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
+        do 
+            aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.pause /home/ubuntu/hashwrap.pause;
+            if [ -f /home/ubuntu/hashwrap.pause ];
+            then
+                echo "Pausing NTLM Dictionary Attack" > /home/ubuntu/status.txt
+                aws s3 cp /home/ubuntu/status.txt s3://${awsSettings.bucketName}/${randomVal}.status;
+            else
+                aws s3 cp /home/ubuntu/hashcat.status s3://${awsSettings.bucketName}/${randomVal}.status;
+            fi
+            sleep 30; 
+        done
+        rm -f /home/ubuntu/hashcat.status
+        `
+    }
+    if(theHCJ.stepPaused.includes("NTLM Brute") || (crackConfigDetails.bruteLimit !== "0" && crackConfigDetails.bruteLimit !== "")) {
+        userDataString += `
+        if [ -f /home/ubuntu/hashwrap.pause ];
+        then
+            echo "Skipping due to pause"
+        else`
+        if(theHCJ.stepPaused.includes("NTLM Brute")){
+            userDataString += `
+            sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin --session ${randomVal} --restore &
+            `
+        } else {
+            userDataString += `
+            sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 3 -m 1000 --session ${randomVal} /home/ubuntu/${randomVal}.NTLM.credentials -o brute.txt -i ${bruteMask} -O -w 3 &
+            `
+        }
+        userDataString += `
+        while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
+            do 
+                aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.pause /home/ubuntu/hashwrap.pause;
+                if [ -f /home/ubuntu/hashwrap.pause ];
+                then
+                    echo "Pausing NTLM Brute Force" > /home/ubuntu/status.txt
+                    aws s3 cp /home/ubuntu/status.txt s3://${awsSettings.bucketName}/${randomVal}.status;    
+                else
+                    aws s3 cp /home/ubuntu/hashcat.status s3://${awsSettings.bucketName}/${randomVal}.status;
+                fi
+                sleep 30; 
+            done
+            rm /home/ubuntu/hashcat.status
+        fi
+        `
+        
+    }
+}
+
+if(theHCJ.stepPaused.includes(" LM ") || (theHCJ.stepPaused.includes(" NTLM ") && theHCJ.types.includes("LM"))){
+    userDataString +=`
+    # download file from s3
+    if [ -f /home/ubuntu/hashwrap.pause ];
+    then
+        echo "Skipping due to pause"
+    else
+        aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.LM.credentials .
+        aws s3 rm s3://${awsSettings.bucketName}/${randomVal}.LM.credentials
+    fi
+    `
+    // Building towards basic and advanced cracking
+    if(theHCJ.stepPaused.includes(" LM Dictionary") || crackConfigDetails.useDictionaries) {
+        userDataString += `   
+        if [ -f /home/ubuntu/hashwrap.pause ];
+        then
+            echo "Skipping due to pause"
+        else
+        `
+        if(theHCJ.stepPaused.includes(" LM Dictionary")){
+            userDataString += `
+            sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin --session ${randomVal} --restore &
+            `
+        } else {
+            userDataString += `
+            sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 0 -m 3000 --session ${randomVal} /home/ubuntu/${randomVal}.LM.credentials /home/ubuntu/COMBINED-PASS.txt -r /home/ubuntu/Hob0Rules/d3adhob0.rule -o crackedLM.txt -O -w 3 &
+            `
+        }
+        userDataString += `
+            while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
+            do 
+                aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.pause /home/ubuntu/hashwrap.pause;
+                if [ -f /home/ubuntu/hashwrap.pause ];
+                then
+                    echo "Pausing LM Dictionary Attack" > /home/ubuntu/status.txt
+                    aws s3 cp /home/ubuntu/status.txt s3://${awsSettings.bucketName}/${randomVal}.status;
+                else
+                    aws s3 cp /home/ubuntu/hashcat.status s3://${awsSettings.bucketName}/${randomVal}.status;
+                fi
+                sleep 30; 
+            done            
+            rm /home/ubuntu/hashcat.status
+        fi
+        `
+    }
+    if(theHCJ.stepPaused.includes(" LM Brute") || (data.bruteLimit !== "0" && data.bruteLimit !== "")) {
+        userDataString += `
+        if [ -f /home/ubuntu/hashwrap.pause ];
+        then
+            echo "Skipping due to pause"
+        else
+        `
+        if(theHCJ.stepPaused.includes(" LM Brute")){
+            userDataString += `
+            sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin --session ${randomVal} --resume &
+            `
+        } else {
+            userDataString += `
+            sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 3 -m 3000 --session ${randomVal} /home/ubuntu/${randomVal}.LM.credentials -o brute.txt -i ${bruteMask} -O -w 3 &
+            `
+        }
+        userDataString += `
+            while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
+            do 
+                aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.pause /home/ubuntu/hashwrap.pause;
+                if [ -f /home/ubuntu/hashwrap.pause ];
+                then
+                    echo "Pausing LM Brute Force" > /home/ubuntu/status.txt
+                    aws s3 cp /home/ubuntu/status.txt s3://${awsSettings.bucketName}/${randomVal}.status;
+                else
+                    aws s3 cp /home/ubuntu/hashcat.status s3://${awsSettings.bucketName}/${randomVal}.status;
+                fi
+                sleep 30; 
+            done
+            rm /home/ubuntu/hashcat.status
+        fi
+        `
+    }
+}
+// Logic for character swap
+// #while read line; do echo -n $line | cut -d ':' -f1 | tr -d '\n'; echo -n ":"; echo $line | cut -d':' -f2 | sed -e 's/[A-Z]/U/g' -e's/[a-z]/l/g' -e 's/[0-9]/0/g' -e 's/[[:punct:]]/*/g'; done < ./hashcat-5.1.0/hashcat.potfile
+// Logic for Length swap
+// #while read line; do echo -n $line | cut -d ':' -f1 | tr -d '\n'; echo -n ":"; echo $line | cut -d':' -f2 | sed -e 's/[A-Z]/*/g' -e's/[a-z]/*/g' -e 's/[0-9]/*/g' -e 's/[[:punct:]]/*/g'; done < ./hashcat-5.1.0/hashcat.potfile
+// Logic for Full swap
+// #while read line; do echo -n $line | cut -d ':' -f1 | tr -d '\n'; echo -n ":"; echo cracked; done < /tmp/fake.potfile
+userDataString += `
+sudo chown ubuntu:ubuntu ./hashcat-5.1.0/hashcat.potfile
+sudo chown ubuntu:ubuntu ./hashcat-5.1.0/${randomVal}.restore
+if [ -f /home/ubuntu/hashwrap.pause ]
+then
+    aws s3 cp /home/ubuntu/hashcat-5.1.0/${randomVal}.restore s3://${awsSettings.bucketName}/${randomVal}.restore
+    aws s3 rm s3://${awsSettings.bucketName}/${randomVal}.pause
+    aws s3 cp /home/ubuntu/${randomVal}.LM.credentials s3://${awsSettings.bucketName}/${randomVal}.LM.credentials
+    aws s3 cp /home/ubuntu/${randomVal}.NTLM.credentials s3://${awsSettings.bucketName}/${randomVal}.NTLM.credentials
+    aws s3 cp /home/ubuntu/COMBINED-PASS.txt s3://${awsSettings.bucketName}/${randomVal}.COMBINED-PASS.txt
+    aws s3 cp /home/ubuntu/Hob0Rules/d3adhob0.rule s3://${awsSettings.bucketName}/${randomVal}.d3adhob0.rule
+    echo "Exfiling Cracked Hashes prior to pause" > ./status.txt
+else
+    echo "Finishing Up..." > ./status.txt
+fi
+# upload files after cracking
+if [ -f ./hashcat-5.1.0/hashcat.potfile ]
+then
+aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
+cat ./hashcat-5.1.0/hashcat.potfile | sed -e 's/ /\\[space\\]/g' > ./hashcat-5.1.0/hashcat.potfile.nospaces
+
+while read line; do echo -n \\$(echo \\$line | cut -d':' -f1 | tr -d '\\n') >> new.potfile; echo -n \":\" >> new.potfile; hit=\\$(egrep -l \"^\\$(echo \\$line | cut -d':' -f2)$\" \\$(find ./SecLists/Passwords/ -iname \"*.txt\") | tr '\\n' ','); if [ \"\\$hit\" != \"\" ]; then echo -n \"\\$(echo \\$line | cut -d':' -f2):\" >> new.potfile; echo \"\\$hit\" >> new.potfile;else echo -n \"\\$(echo \\$line | cut -d':' -f2)\" >> new.potfile; echo \":\" >> new.potfile; fi; done < ./hashcat-5.1.0/hashcat.potfile.nospaces
+`
+if(theHCJ.configDetails.redactionValue.redactionCharacter){
+    userDataString += `
+    while read line; do echo -n \\$line | cut -d ':' -f1 | tr -d '\\n' >> ./new2.potfile; echo -n \":\" >> ./new2.potfile; echo -n \\$line | cut -d':' -f2 | sed -e 's/\\[space\\]/ /g' -e 's/[A-Z]/U/g' -e's/[a-z]/l/g' -e 's/[0-9]/0/g' -e 's/[[:punct:]]/*/g' | tr -d '\\n' >> ./new2.potfile; echo -n \":\" >> ./new2.potfile; echo \\$line | cut -d':' -f3 >> ./new2.potfile; done < ./new.potfile
+    `
+} else if(theHCJ.configDetails.redactionValue.redactionLength) {
+    userDataString += `
+    while read line; do echo -n \\$line | cut -d ':' -f1 | tr -d '\\n' >> ./new2.potfile; echo -n \":\" >> ./new2.potfile; echo -n \\$line | cut -d':' -f2 | sed -e 's/\\[space\\]/ /g' -e 's/[A-Z]/*/g' -e's/[a-z]/*/g' -e 's/[0-9]/*/g' -e 's/[[:punct:]]/*/g' | tr -d '\\n' >> ./new2.potfile; echo -n \":\" >> ./new2.potfile; echo \\$line | cut -d':' -f3 >> ./new2.potfile; done < ./new.potfile
+`
+} else if(theHCJ.configDetails.redactionValue.redactionFull){ 
+    userDataString += `
+    while read line; do echo -n \\$line | cut -d ':' -f1 | tr -d '\\n' >> ./new2.potfile; echo -n \":\" >> ./new2.potfile; echo -n cracked >> ./new2.potfile; echo -n \":\" >> ./new2.potfile; echo \\$line | cut -d':' -f3 >> ./new2.potfile; done < ./new.potfile
+`
+} else {
+    userDataString +=`
+cp new.potfile new2.potfile`
+}
+userDataString += `
+    if [ -f ./new2.potfile ]; 
+    then 
+        sleep 1; 
+    else 
+        echo emptypotfile > ./new2.potfile; 
+    fi
+    aws s3 cp ./new2.potfile s3://${awsSettings.bucketName}/${randomVal}.hashcat.potfile
+    aws s3 rm s3://${awsSettings.bucketName}/${randomVal}.status
+    # Self Terminate on completion
+    instanceId=\$(curl http://169.254.169.254/latest/meta-data/instance-id/)
+    region=\$(curl http://169.254.169.254/latest/dynamic/instance-identity/document | grep region | awk '{print \$3}' | sed  's/"//g'|sed 's/,//g')
+
+    aws ec2 terminate-instances --instance-ids \$(curl http://169.254.169.254/latest/meta-data/instance-id/) --region \$(curl http://169.254.169.254/latest/dynamic/instance-identity/document | grep region | awk '{print \$3}' | sed  's/"//g'|sed 's/,//g')
+fi
+EOF
+
+chmod +x /home/ubuntu/driver-and-hashcat-install.sh
+chown ubuntu:ununtu /home/ubuntu/driver-and-hashcat-install.sh
+
+echo "@reboot ( sleep 15; su -c \"/home/ubuntu/driver-and-hashcat-install.sh\" -s /bin/bash ubuntu )" | crontab -
+sudo reboot`;
+
+                    let buff = new Buffer(userDataString);
+                    let userData = buff.toString('base64');
+                    // console.log(userData)
+
+                    // console.log(data.availabilityZone.replace(/[a-z]$/g, ''))
+                    AWS.config.update({region: data.availabilityZone.replace(/[a-z]$/g, '')});
+                    let ec2 = new AWS.EC2()
+
+                    var params = {
+                        Filters: [
+                          {
+                            Name: "name",
+                            Values: [
+                                "ubuntu/images/hvm-ssd/ubuntu-bionic-18.04-amd64-server-20190722.1*" 
+                            ],
+                          },
+                          { 
+                              Name:"architecture",
+                              Values:[
+                                  "x86_64"
+                              ]
+                          }
+                        // {
+                        //     Name:"image-id",
+                        //     Values: [
+                        //         "ami-05c1fa8df71875112"
+                        //     ]
+                        // }
+                          /* more items */
+                        ],
+                      };
+                      let chosenAZ = data.availabilityZone;
+                      ec2.describeImages(params, function(err, data) {
+                        if (err) console.log(err, err.stack); // an error occurred
+                        else {
+                            // console.log(data)
+                            imageID = data.Images[0].ImageId
+                            //imageID = "ami-05c1fa8df71875112"
+                            // We've started our bookkeeping, now to make the spot instance request...
+                            var params = {
+                                InstanceCount: 1, 
+                                LaunchSpecification: {
+                                    // Will want to get this ARN dynamically in the future (and in fact actually set everything up (roles/etc))
+                                    IamInstanceProfile: {
+                                    Arn: `${awsSettings.instanceProfile.Arn}`,
+                                    }, 
+                                    // Hardcoded ubuntu 18.04 64bit AMI
+                                    ImageId: imageID, 
+                                    InstanceType: properInstanceType, 
+                                    Placement: {
+                                    // Need to send this in data as well...
+                                    AvailabilityZone: chosenAZ
+                                    },
+                                    UserData: userData, 
+                                }, 
+                                SpotPrice: `${price}`, 
+                                Type: "one-time",
+                                // Remove once pause resume finished...
                             };
                             //console.log(params);
                             ec2.requestSpotInstances(params, function(err, data) 
@@ -1620,6 +2378,72 @@ sudo reboot`;
             throw new Meteor.Error('E1234',err.message);
         }
         return true;
-    }
+    },
+
+    async deleteHashCrackJobs(fileIDArray){
+        if(Roles.userIsInRole(Meteor.userId(),['admin','files.delete'])){
+            let creds = AWSCOLLECTION.findOne({type:'creds'})
+            if(creds){
+                const AWS = require('aws-sdk');
+                AWS.config.credentials = new AWS.Credentials({accessKeyId:creds.accessKeyId, secretAccessKey:creds.secretAccessKey});
+                const s3 = new AWS.S3({
+                    accessKeyId: creds.accessKeyId,
+                    secretAccessKey: creds.secretAccessKey
+                });
+                _.each(fileIDArray, (fileID) => {
+                    let theHCJ = HashCrackJobs.findOne({"uuid":fileID})
+                    if(theHCJ.status === 'Job Completed' || theHCJ.status === 'Job Paused'){
+                        deleteAllFilesWithPrefix(theHCJ.uuid, s3)
+                        HashCrackJobs.remove({"uuid":fileID})
+                    }
+                })
+                return true
+            }
+        }
+        throw new Meteor.Error(401,'401 Unauthorized','Your account is not authorized to delete hashes/hash files')
+    },
+
+    async pauseCrackJob(fileID){
+        if(Roles.userIsInRole(Meteor.userId(),['admin','jobs.pause'])){
+            let theHCJ = HashCrackJobs.findOne({"_id":fileID})
+
+                HashCrackJobs.update({"_id":fileID},{$set:{requestedPause:true}})
+                // We have a job that has never been paused or was pause but resumed and is running again... meaning we can pause it
+                let creds = AWSCOLLECTION.findOne({type:'creds'})
+                if(creds){
+                    let awsSettings = AWSCOLLECTION.findOne({'type':"settings"})
+                    if(!awsSettings){
+                        HashCrackJobs.update({"_id":fileID},{$set:{requestedPause:false}})
+                        throw new Meteor.Error(500, 'AWS Settings Not Configured','The Application Admin has not run the initial configuration of all AWS resources yet so cracking cannot occur.')
+                    }
+                    const AWS = require('aws-sdk');
+                    AWS.config.credentials = new AWS.Credentials({accessKeyId:creds.accessKeyId, secretAccessKey:creds.secretAccessKey});
+                    const s3 = new AWS.S3({
+                        accessKeyId: creds.accessKeyId,
+                        secretAccessKey: creds.secretAccessKey
+                    });
+
+                    const params = {
+                        Bucket: `${awsSettings.bucketName}`, // pass your bucket name
+                        Key: `${theHCJ.uuid}.pause`, 
+                        Body:"PAUSE THE JOB",
+                    };
+                    s3.upload(params, function(s3Err, data) {
+                        if (s3Err) {
+                            HashCrackJobs.update({"_id":fileID},{$set:{requestedPause:false}})
+                            throw s3Err
+                        }
+                    });
+                    HashCrackJobs.update({"_id":fileID},{$set:{status:"Pause Request Submitted"}})
+
+                } else {
+                    HashCrackJobs.update({"_id":fileID},{$set:{requestedPause:false}})
+                }
+    
+            
+            return true
+        }
+        throw new Meteor.Error(401,'401 Unauthorized','Your account is not authorized to delete hashes/hash files')
+    },
     
 });

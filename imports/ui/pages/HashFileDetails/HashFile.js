@@ -274,10 +274,14 @@ class HashFileDetails extends React.Component {
       }
   
       if(Roles.userIsInRole(Meteor.userId(), 'admin')){
-        innerOptions.searchText = this.state.searchText
-        innerOptions.customSearch = (searchQuery, currentRow, columns) => {
-          let isFound = false;
+        function queryWasFound (searchQuery, currentRow, columns) {
           //custom 'filter:' logic
+          let isNegated = false
+          if(searchQuery.startsWith("NOT ")){
+            isNegated = true
+            searchQuery = searchQuery.replace("NOT ","")
+          }
+          let isFound = false
           if(searchQuery.toLowerCase().split(':').length > 1 && searchQuery.toLowerCase().split(':')[0] == 'filter'){
             // passLength query
             if(searchQuery.toLowerCase().split(':')[1].includes('password.length')){
@@ -324,14 +328,16 @@ class HashFileDetails extends React.Component {
                     // console.log(splitVal[1].split('"')[1])
                     // console.log(currentRow[4][fileFromID._id])
                     let groupString = splitVal[1].split('"')[1]
-                    for (let [key, value] of Object.entries(fileFromID.groups)) {
-                      // console.log(`${key}: ${value}`);
-                      if(key === groupString){
-                        _.each(currentRow[4][fileFromID._id], (username) => {
-                          if(value.data.includes(username)){
-                            isFound = true;
-                          }
-                        })
+                    if(typeof fileFromID.groups !== 'undefined') {
+                      for (let [key, value] of Object.entries(fileFromID.groups)) {
+                        // console.log(`${key}: ${value}`);
+                        if(key === groupString){
+                          _.each(currentRow[4][fileFromID._id], (username) => {
+                            if(value.data.includes(username)){
+                              isFound = true;
+                            }
+                          })
+                        }
                       }
                     }
                   }
@@ -348,7 +354,42 @@ class HashFileDetails extends React.Component {
               }
             }
           });
+          if(isNegated){
+            isFound = !isFound
+          }
+          return isFound
+        }
+        function handleTokenizeWork(searchQuery, currentRow, columns) {
+          let isFound = false
+          if(searchQuery.includes(" AND ") && searchQuery.includes(" OR ")){
+            if(searchQuery.indexOf(" AND ") < searchQuery.includes(" OR ")){
+              let first = searchQuery.split(" AND ")[0]
+              let second = searchQuery.split(" AND ").slice(1).join(" AND ")
+              isFound = queryWasFound(first, currentRow, columns) && handleTokenizeWork(second, currentRow, columns)
+            } else {
+              let first = searchQuery.split(" OR ")[0]
+              let second = searchQuery.split(" OR ").slice(1).join(" OR ")
+              isFound = queryWasFound(first, currentRow, columns) || handleTokenizeWork(second, currentRow, columns)
+            }
+          } else if(searchQuery.includes(" AND ")){
+            let first = searchQuery.split(" AND ")[0]
+            let second = searchQuery.split(" AND ").slice(1).join(" AND ")
+            isFound = queryWasFound(first, currentRow, columns) && handleTokenizeWork(second, currentRow, columns)
+            // isFound = andQueryWasFound(searchQuery, currentRow, columns)
+          } else if(searchQuery.includes(" OR ")){
+            let first = searchQuery.split(" OR ")[0]
+            let second = searchQuery.split(" OR ").slice(1).join(" OR ")
+            isFound = queryWasFound(first, currentRow, columns) || handleTokenizeWork(second, currentRow, columns)
+            // isFound = orQueryWasFound(searchQuery, currentRow, columns)
+          } else{
+            isFound = queryWasFound(searchQuery, currentRow, columns);
+          }
           return isFound;
+        }
+        innerOptions.searchText = this.state.searchText
+        innerOptions.customSearch = (searchQuery, currentRow, columns) => {
+          // first check for logical AND
+          return (handleTokenizeWork(searchQuery, currentRow, columns))
         },
         innerOptions.expandableRows = true
         innerOptions.expandableRowsOnClick= true

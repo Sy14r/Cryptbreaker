@@ -5,17 +5,13 @@ Upload files and use AWS Spot Instances to crack passwords. Using cloud capabili
 ![](initial-walkthrough.gif)
 
 ## Quick start
-Clone repository:
+Install Docker:
 ```
 git clone 
 ```
-Install packages:
+Run Cryptbreaker:
 ```
-meteor npm install
-```
-Start Meteor:
-```
-meteor
+docker run -p 3000:3000 sy14r/cryptbreaker
 ```
 
 Navigate to [http://localhost:3000](http://localhost:3000) in any browser.

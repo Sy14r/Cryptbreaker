@@ -5,11 +5,8 @@ Upload files and use AWS Spot Instances to crack passwords. Using cloud capabili
 ![](initial-walkthrough.gif)
 
 ## Quick start
-Install Docker:
-```
-git clone 
-```
-Run Cryptbreaker:
+1. Install Docker
+2. Run Cryptbreaker
 ```
 docker run -p 3000:3000 sy14r/cryptbreaker
 ```

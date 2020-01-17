@@ -89,6 +89,7 @@ class Profile extends React.Component {
                 })
               }
               else {
+                console.log("FIRING HERE")
                 Swal.fire({
                   title: 'Update Successful',
                   text:"Your AWS Credentials have been validated, the next step is to configure the IAM Roles and S3 bucket to enable automated cracking",
@@ -209,7 +210,7 @@ class Profile extends React.Component {
         bestFor: "unknown",
       },
     ]
-    if(this.props.awsPricing.length > 0){
+    if(this.props.awsPricing.length > 0 && typeof this.props.awsPricing[0].data !== 'undefined'){
       // Need to calculate best LM and best NTLM (and ultimately other hash types...)
       let bestLM = {rate:1000, name:""}
       let bestNTLM = {rate:1000, name:""}
@@ -271,19 +272,27 @@ class Profile extends React.Component {
           subsReady ? (
             <>
             <h3>Profile</h3>
-            <Button target="deleteAccount" onClick={this.deleteAccount} type="secondary" title="Delete Account" />
+            { this.props.awsSettings.length > 0 ? (<Button target="deleteAccount" onClick={this.deleteAccount} type="secondary" title="Delete Account" />) : (null)}
             {Roles.userIsInRole(Meteor.userId(), 'admin') ? (
               <>
-              {this.props.awsSettings.length > 0 ? (<>{Swal.close()}</>) : (<>{this.initialConfigurationWalkthrough()}<Button target="initialConfigurationWalkthrough" onClick={this.initialConfigurationWalkthrough} type="primary" title="Click Me to Complete Installation" /></>)}
+              {this.props.awsSettings.length === 0 ? (
+                <>
+                  <Button target="initialConfigurationWalkthrough" onClick={this.initialConfigurationWalkthrough} type="primary" title="Click Me to Complete Installation" />
+                </>
+                ) : (
+                (null)
+              )}
+              {this.props.awsPricing.length === 0 ? (this.initialConfigurationWalkthrough()) : (null)}
+              {this.props.awsSettings.length > 0 ? (Swal.close()) : (null)}
               </>
               ) : (null)}
-              <MUIDataTable
+              {this.props.awsSettings.length > 0 ? (<MUIDataTable
                 className={"crackRatesTable"}
                 title={"Crack Rates"}
                 data={data}
                 columns={columns}
                 options={options}
-              />
+              />) :(null) }
               </>
           ) : 
           (

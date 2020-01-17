@@ -329,23 +329,32 @@ async function processNTDSZip(fileName, fileData, date){
 
     zip.on('ready', function () {
     // console.log('All entries read: ' + zip.entriesCount);
-    //console.log(zip.entries());
+    // console.log(zip.entries());
     });
     let total = 0
     let count = 0
+    let pathsToMake = []
     zip.on('entry', function (entry) {
         var pathname = path.resolve(`/tmp/${fileName}/`, entry.name);
+        // console.log(pathname)
         if (/\.\./.test(path.relative(`/tmp/${fileName}/`, pathname))) {
             // console.warn("[zip warn]: ignoring maliciously crafted paths in zip file:", entry.name);
             total++
             return;
         }
-      
         if ('/' === entry.name[entry.name.length - 1]) {
-        //   console.log('[DIR]', entry.name);
-          fs.mkdirSync(pathname)
+          console.log('[DIR]', entry.name);
+        //   fs.mkdirSync(pathname)
           return;
         } else {
+            console.log('[FILE]', entry.name);
+            let splitVal = pathname.split("/")
+            let dirPathFromFile = splitVal.slice(0,splitVal.length - 1).join("/")
+            if(!pathsToMake.includes(dirPathFromFile)){
+                pathsToMake.push(dirPathFromFile)
+                fs.mkdirSync(dirPathFromFile)
+            }
+            console.log(`[PATH] ${dirPathFromFile}`)
             total++
         }
       

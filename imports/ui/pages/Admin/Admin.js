@@ -89,29 +89,31 @@ class Admin extends React.Component {
 
     let spotDataEntry = AWSCOLLECTION.find({type:'pricing'}).fetch()
     let spotData = []
-    if(spotDataEntry.length > 0){
-      spotData.push({
-        instanceType:"p3.2xlarge",
-        instancePrice:`$${spotDataEntry[0].data.p3_2xl.cheapest}`,
-        instanceAZ:spotDataEntry[0].data.p3_2xl.az,
-      })
-      spotData.push({
-        instanceType:"p3.8xlarge",
-        instancePrice:`$${spotDataEntry[0].data.p3_8xl.cheapest}`,
-        instanceAZ:spotDataEntry[0].data.p3_8xl.az,
-      })
-      spotData.push({
-        instanceType:"p3.16xlarge",
-        instancePrice:`$${spotDataEntry[0].data.p3_16xl.cheapest}`,
-        instanceAZ:spotDataEntry[0].data.p3_16xl.az,
-      })
-      spotData.push({
-        instanceType:"p3dn.24xlarge",
-        instancePrice:`$${spotDataEntry[0].data.p3dn_24xl.cheapest}`,
-        instanceAZ:spotDataEntry[0].data.p3dn_24xl.az,
-      })
+    if(typeof spotDataEntry.data !== "undefined") {
+      if(spotDataEntry.length > 0){
+        spotData.push({
+          instanceType:"p3.2xlarge",
+          instancePrice:`$${spotDataEntry[0].data.p3_2xl.cheapest}`,
+          instanceAZ:spotDataEntry[0].data.p3_2xl.az,
+        })
+        spotData.push({
+          instanceType:"p3.8xlarge",
+          instancePrice:`$${spotDataEntry[0].data.p3_8xl.cheapest}`,
+          instanceAZ:spotDataEntry[0].data.p3_8xl.az,
+        })
+        spotData.push({
+          instanceType:"p3.16xlarge",
+          instancePrice:`$${spotDataEntry[0].data.p3_16xl.cheapest}`,
+          instanceAZ:spotDataEntry[0].data.p3_16xl.az,
+        })
+        spotData.push({
+          instanceType:"p3dn.24xlarge",
+          instancePrice:`$${spotDataEntry[0].data.p3dn_24xl.cheapest}`,
+          instanceAZ:spotDataEntry[0].data.p3dn_24xl.az,
+        })
+      }
     }
-
+    
     const spotOptions = {
       download:false,
       filter:false,

@@ -46,6 +46,10 @@ Meteor.methods({
         });
         AWSCOLLECTION.remove({type:'creds'});
         AWSCOLLECTION.insert({type:'creds', accessKeyId:data.accessKeyId, secretAccessKey:data.secretAccessKey});   
+        let current = AWSCOLLECTION.find({type:'pricing'}).fetch()
+        if(current.length === 0){
+            AWSCOLLECTION.insert({type:'pricing'})
+        }
         return true; 
     },
 
@@ -83,7 +87,7 @@ Meteor.methods({
                     })
                     return regions;
                 }).then((regions) => {
-                    console.log(regions.length-1);
+                    // console.log(regions.length-1);
                     const promises = regions.map(theRegion => {
                         let formattedResult = {
                             p3_2xl:{cheapest:1000},
@@ -129,7 +133,7 @@ Meteor.methods({
                                 })
                                 formattedResults.push(formattedResult);
                                 if(formattedResults.length === regions.length-1){
-                                    console.log(availabilityIssues)
+                                    // console.log(availabilityIssues)
                                     // console.log("HERE")
                                     let formattedResult = {
                                         p3_2xl:{cheapest:1000},
@@ -181,21 +185,19 @@ Meteor.methods({
                                       
                                     })
                                     let current = AWSCOLLECTION.find({type:'pricing'}).fetch()
-                                    if(current){
-                                        AWSCOLLECTION.remove({type:'pricing'});
+                                    if(current.length > 0){
+                                        AWSCOLLECTION.update({type:'pricing'},{$set:{data:formattedResult}});
+                                    } else {
+                                        AWSCOLLECTION.insert({type:'pricing',data:formattedResult});
                                     }
-                                    let res = AWSCOLLECTION.insert({type:'pricing',data:formattedResult});
-                                    if(res){
-                                        console.log(formattedResult)
-                                        // console.log(formattedResults)
-                                        return true    
-                                    }
-                                    throw new Meteor.Error(500,'Error updateing pricing information in db','an unexpected error was encountered while attempting to update current spot pricing in the db')
                                 }
                             }
                         })
                     });
-                    Promise.all(promises)
+                    Promise.all(promises).then(() => {
+                        console.log("ALL DONE")
+                        return true
+                    })
                 })
                 .catch(err => {
                     return false

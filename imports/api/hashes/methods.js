@@ -84,7 +84,18 @@ function generateHashesFromLine(line) {
 }
 
 function updateHashesFromPotfile(fileName, fileData){
-    const hashFileUploadJobID = HashFileUploadJobs.insert({name:fileName,uploadStatus:0,description:"Uploading Potfile"})
+    let hashFileUploadJobID
+    let hashType = ""
+    if(fileName.toUpperCase().endsWith("-NTLM.POTFILE")){
+        hashFileUploadJobID = HashFileUploadJobs.insert({name:fileName,uploadStatus:0,description:"Uploading Potfile"})
+        hashType = "NTLM"
+    } else if(fileName.toUpperCase().endsWith("-LM.POTFILE")) {
+        hashFileUploadJobID = HashFileUploadJobs.insert({name:fileName,uploadStatus:0,description:"Uploading Potfile"})
+        hashType = "LM"
+    } else {
+        hashFileUploadJobID = HashFileUploadJobs.insert({name:fileName,uploadStatus:-1,description:"Potfile Uploads MUST end in -ntlm.potfile or -lm.potfile"})
+        return
+    }
     let data = fileData.split(',')[1];
     let buff = new Buffer(data, 'base64');
     let text = buff.toString('ascii');
@@ -110,18 +121,34 @@ function updateHashesFromPotfile(fileName, fileData){
                 symbolCount: (textToEvaluate.match(/[-!$%^&*()@_+|~=`{}\[\]:";'<>?,.\/\ ]/g) || []).length,
             }
             let hashData = Hashes.findOne({"data":hash})
-            let wasCracked = hashData.meta.cracked
-            Hashes.update({"data":hash},{$set:{'meta.cracked':true,'meta.plaintext':plaintext,'meta.plaintextStats':plaintextStats}})
-            _.each(hashData.meta.source, (eachSource) => {
-                // Make note of which hashFiles will need to have password length stats recalculated
-                hashFilesUpdated.includes(eachSource) ? null : hashFilesUpdated.push(eachSource)
-                // Update the crackCount for this hashFile
-                let theHashFile = HashFiles.findOne({"_id":eachSource})
-                // If the hash wasn't previously marked as cracked we need to modify the crackCounts
-                if(!wasCracked) {
-                    HashFiles.update({"_id":eachSource},{$set:{'crackCount':theHashFile.crackCount + 1}})
-                }
-            })
+            // if we don't have the hash need to skip it or we add it without type? just have hash data, meta no source no type? it then do meta info... else just update it
+            if(typeof hashData === 'undefined'){
+                hashData = Hashes.insert({
+                    data:hash,
+                    meta: {
+                        type: hashType,
+                        source: [],
+                        cracked: true,
+                        plaintext: plaintext,
+                        plaintextStats: plaintextStats,
+                        username: {}
+                    }
+                })
+            } else {
+                let wasCracked = hashData.meta.cracked
+                Hashes.update({"data":hash},{$set:{'meta.cracked':true,'meta.plaintext':plaintext,'meta.plaintextStats':plaintextStats}})
+                _.each(hashData.meta.source, (eachSource) => {
+                    // Make note of which hashFiles will need to have password length stats recalculated
+                    hashFilesUpdated.includes(eachSource) ? null : hashFilesUpdated.push(eachSource)
+                    // Update the crackCount for this hashFile
+                    let theHashFile = HashFiles.findOne({"_id":eachSource})
+                    // If the hash wasn't previously marked as cracked we need to modify the crackCounts
+                    if(!wasCracked) {
+                        HashFiles.update({"_id":eachSource},{$set:{'crackCount':theHashFile.crackCount + 1}})
+                    }
+                })
+            }
+            
         }
         count++
         if(count % 100 == 0){
@@ -792,6 +819,36 @@ async function processUpload(fileName, fileData, isBase64, providedID){
                     HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:100,description:"File Uploaded Successfully"}})
                     // TODO: Move Remove of HashFileUploadJobs where the uploadStatus == 100 to a cron every 5 minutes
                     // HashFileUploadJobs.remove({"_id":hashFileUploadJobID})
+                }).then(() => {
+                    // Calcualte reuse stats
+                    let hashFileUsersKey = `$meta.username.${hashFileID}`
+                    let plaintextFilter = "$meta.plaintext"
+                    $match = {$and: [{'meta.source':hashFileID},{'meta.cracked':true}]};
+                    $project = {"hash":plaintextFilter,"count":{$size:[hashFileUsersKey]}}
+                    $sort = {count:-1}
+                    try {
+                        (async () => {
+                            const stats = await Hashes.rawCollection().aggregate([
+                                { 
+                                $match
+                                },
+                                {
+                                $project, 
+                                },
+                                {
+                                $sort
+                                },
+                                {
+                                $limit:10
+                                }
+                            ]).toArray();
+                            // console.log(stats);
+                            //return orderedItems;
+                            HashFiles.update({"_id":`${hashFileID}`},{$set:{'passwordReuseStatsCracked':stats}})
+                        })();
+                    } catch (err) {
+                        throw new Meteor.Error('E1235',err.message);
+                    }
                 });
             
             } catch (err) {

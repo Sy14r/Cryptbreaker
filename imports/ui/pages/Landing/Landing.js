@@ -697,15 +697,14 @@ class Landing extends React.Component {
       //   oranges: 'Oranges'
       // },
       inputOptions: {
-        exportUncracked:"Export Uncracked Hashes",
-        exportCracked: "Export Cracked Hashes"
+        exportUncracked:"Export Uncracked Hashes (hashcat)",
+        exportCracked: "Export Cracked Hashes (hashcat)",
+        exportAllDataJSON: "Export all Hashes (JSON)"
       },
       inputPlaceholder: '',
       showCancelButton: true,
     }).then((result) => {
       if (result.value === "exportUncracked") {
-        console.log("Export uncracked")
-        // console.log(ids)
         // find all cracked hashes and create output of HASH:Plaintext
         let uncrackedHashes = Hashes.find({ $and: [{'meta.source':`${id}`},{'meta.cracked':{$not: true}}] },{'fields':{'data':1,'meta.type':1 }}).fetch()
         let dataToDownloadLM = ''
@@ -765,6 +764,29 @@ class Landing extends React.Component {
         element.click();
 
         document.body.removeChild(element);
+      } else if (result.value === "exportAllDataJSON"){
+        let hashes = Hashes.find({ $and: [{'meta.source':`${id}`}]},{fields:{'meta.source':0}}).fetch()
+        _.each(hashes, (hash) => {
+          let hashUsernames = hash.meta.username[id]
+          delete hash.meta.username
+          hash.meta.usernames = hashUsernames
+        })
+        let hashFile = HashFiles.findOne({"_id":id},{fields:{'uploadStatus':0}})
+        let data = {
+          hashFile: hashFile,
+          hashes: hashes
+        }
+        var element = document.createElement('a');
+        element.setAttribute('href', 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(data)));
+        element.setAttribute('download', `${hashFile.name}-${id}.json`);
+
+        element.style.display = 'none';
+        document.body.appendChild(element);
+
+        element.click();
+
+        document.body.removeChild(element);
+
       }
     })
   };

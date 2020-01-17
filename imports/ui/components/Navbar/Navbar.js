@@ -104,6 +104,10 @@ const LoggedInNav = () => {
   const handleClose = () => {
     setAnchorEl(null);
   };
+
+  const openDocs = () => {
+    window.open('https://www.opensecurity.io/blog/quick-password-cracks-and-audits')
+  }
   return(
   <>
     <UploadButton key="upload" />
@@ -127,6 +131,11 @@ const LoggedInNav = () => {
           Profile
         </button>
       </NavLink>
+    </li>
+    <li className="nav-item">
+      <button type="button" className="dropdown-item" onClick={openDocs}>
+        Docs
+      </button>
     </li>
     <li className="nav-item">
       <div className="dropdown-divider" />

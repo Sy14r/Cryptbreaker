@@ -613,7 +613,7 @@ async function processUpload(fileName, fileData, isBase64, providedID){
         if(totalHashes.length > 0){
             // console.log(JSON.stringify(totalHashes))
             // return
-            let hashFileId = ''
+            let hashFileID = ''
             let hashFileUploadJobID = ''
             if(isBase64) {
                 hashFileID = HashFiles.insert({name:fileName,hashCount:0,crackCount:0,uploadDate:date})
@@ -704,8 +704,7 @@ async function processUpload(fileName, fileData, isBase64, providedID){
                         }
 
                     } else {
-                        // If we didn't have the hash we add it if it isn't the blank lm/ntlm hash
-                        // if(hash.data !== "aad3b435b51404eeaad3b435b51404ee" && hash.data !== "31d6cfe0d16ae931b73c59d7e0c089c0"){
+                        // If we didn't have the hash we add it
                         let usernames = hash.meta.username
                         let usernameLegth = hash.meta.username.length
                         delete hash.meta.username

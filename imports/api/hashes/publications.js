@@ -2,7 +2,7 @@
 
 import { Meteor } from 'meteor/meteor';
 import { Roles } from 'meteor/alanning:roles';
-import { Hashes, HashFiles, HashCrackJobs } from '/imports/api/hashes/hashes.js';
+import { Hashes, HashFiles, HashCrackJobs, HashFileUploadJobs } from '/imports/api/hashes/hashes.js';
 
 if (Meteor.isServer) {
   // all users publication (admin only)
@@ -79,9 +79,23 @@ if (Meteor.isServer) {
     return this.ready();
   });
 
+  Meteor.publish('hashFileUploadJobs.all', function() {
+    if (this.userId) {    
+      return HashFileUploadJobs.find();
+    }
+    return this.ready();
+  });
+
   Meteor.publish('hashCrackJobs.all', function() {
     if (this.userId) {    
       return HashCrackJobs.find();
+    }
+    return this.ready();
+  });
+
+  Meteor.publish('hashCrackJobs.running', function() {
+    if (this.userId) {    
+      return HashCrackJobs.find({status:{$ne: "Job Completed"}});
     }
     return this.ready();
   });

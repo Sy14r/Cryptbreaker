@@ -23,3 +23,4 @@ import { Meteor } from 'meteor/meteor';
 export const Hashes = new Mongo.Collection('hashes');
 export const HashFiles = new Mongo.Collection('hashFiles');
 export const HashCrackJobs = new Mongo.Collection('hashCrackJobs');
+export const HashFileUploadJobs = new Mongo.Collection('hashFileUploadJobs');

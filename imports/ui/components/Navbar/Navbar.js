@@ -3,9 +3,18 @@ import { Roles } from 'meteor/alanning:roles'
 import React from 'react';
 import PropTypes from 'prop-types';
 import { NavLink } from 'react-router-dom';
+import NotificationsIcon from "@material-ui/icons/NotificationsNone"
 import Swal from 'sweetalert2'
+import Menu from '@material-ui/core/Menu';
+import MenuItem from '@material-ui/core/MenuItem';
+
 
 import './Navbar.scss';
+
+
+
+
+
 
 const PublicNav = () => [
   <li key="login" className="nav-item">
@@ -60,17 +69,17 @@ const UploadButton = () => {
               animation:false,
             })
           }
-          else {
-            Swal.fire({
-              title: 'Upload Successful',
-              text: 'It may take a moment for results to populate based off of uploaded file size',
-              type: 'success',
-              timer:3000,
-              toast:true,
-              position:'top-right',
-              animation:false,
-            })
-          }
+          // else {
+          //   Swal.fire({
+          //     title: 'Upload Successful',
+          //     text: 'It may take a moment for results to populate based off of uploaded file size',
+          //     type: 'success',
+          //     timer:3000,
+          //     toast:true,
+          //     position:'top-right',
+          //     animation:false,
+          //   })
+          // }
         })
       }
       reader.readAsDataURL(file)
@@ -86,6 +95,19 @@ const UploadButton = () => {
 )};
 
 const LoggedInNav = () => {
+  const [anchorEl, setAnchorEl] = React.useState(null);
+
+  const handleClick = event => {
+    setAnchorEl(event.currentTarget);
+  };
+
+  const handleClose = () => {
+    setAnchorEl(null);
+  };
+
+  const openDocs = () => {
+    window.open('https://www.opensecurity.io/blog/quick-password-cracks-and-audits')
+  }
   return(
   <>
     <UploadButton key="upload" />
@@ -111,6 +133,11 @@ const LoggedInNav = () => {
       </NavLink>
     </li>
     <li className="nav-item">
+      <button type="button" className="dropdown-item" onClick={openDocs}>
+        Docs
+      </button>
+    </li>
+    <li className="nav-item">
       <div className="dropdown-divider" />
     </li>
     <li>
@@ -120,6 +147,24 @@ const LoggedInNav = () => {
         </button>
       </NavLink>
     </li>
+    {/*
+    <li className="nav-item">
+      <button aria-controls="simple-menu" aria-haspopup="true" onClick={handleClick} type="button" className="dropdown-item">
+        <NotificationsIcon />
+      </button>
+      <Menu
+        id="simple-menu"
+        anchorEl={anchorEl}
+        keepMounted
+        open={Boolean(anchorEl)}
+        onClose={handleClose}
+      >
+        <MenuItem onClick={handleClose}>Profile</MenuItem>
+        <MenuItem onClick={handleClose}>My account</MenuItem>
+        <MenuItem onClick={handleClose}>Logout</MenuItem>
+      </Menu>
+    </li>
+    */}
   </>
 )};
 

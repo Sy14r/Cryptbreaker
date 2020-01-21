@@ -16,3 +16,6 @@ import '../../api/files/hashfiles';
 
 // import aws info as needed
 import '../../api/aws/aws';
+
+import '../../api/api/api';
+import '../../api/api/methods';

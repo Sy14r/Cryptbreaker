@@ -6,25 +6,15 @@ import MUIDataTable from "mui-datatables";
 import { Roles } from 'meteor/alanning:roles';
 import Swal from 'sweetalert2'
 import { AWSCOLLECTION } from '/imports/api/aws/aws.js'
+import { APICollection } from '/imports/api/api/api.js'
 import Spinner from '/imports/ui/components/Spinner';
-
-
-
-// collection
-// import Counters from '../../../api/counters/counters';
-
-// remote example (if using ddp)
-/*
-import Remote from '../../../api/remote/ddp';
-import Users from '../../../api/remote/users';
-*/
-
-// components
 import Modal, { Button } from '../../components/Modal/Modal';
 import AddCountButton from '../../components/Button';
 import Text from '../../components/Text';
 
 import './Profile.scss';
+import CustomAPIKeySelect from './CustomAPIKeySelect.js';
+import CustomAPIToolbar from './CustomAPIToolbar.js';
 
 
 class Profile extends React.Component {
@@ -182,7 +172,24 @@ class Profile extends React.Component {
       filter:false,
       print:false,
       viewColumns:false,
-      selectableRows:"none"
+      selectableRows:"none",
+      search:false
+    }
+    const apiKeyOptions = {
+      download:false,
+      filter:false,
+      print:false,
+      viewColumns:false,
+      selectableRows:"none",
+      search:false,
+      customToolbar: () => {
+        return (
+          <CustomAPIToolbar />
+        );
+      },
+      customToolbarSelect: (selectedRows, displayData, setSelectedRows) => (
+        <CustomAPIKeySelect selectedRows={selectedRows} displayData={displayData} setSelectedRows={setSelectedRows} />
+      ),
     }
     let data = [
       {
@@ -265,6 +272,20 @@ class Profile extends React.Component {
         }
       })
     }
+    let apiKeysColumns = [
+      {
+        name:"_id",
+        label:"Access Key ID"
+      },
+      {
+        name:"secret",
+        label:"Access Key Secret"
+      },
+      {
+        name:"status",
+        label:"Status"
+      }
+    ];
     const { subsReady } = this.props
     return (
       <div style={{marginTop:'2%'}} className="profile-page">
@@ -286,6 +307,13 @@ class Profile extends React.Component {
               {this.props.awsSettings.length > 0 ? (Swal.close()) : (null)}
               </>
               ) : (null)}
+              {this.props.awsSettings.length > 0 ? (<MUIDataTable
+                className={"crackRatesTable"}
+                title={"API Keys"}
+                data={this.props.apiKeys}
+                columns={apiKeysColumns}
+                options={apiKeyOptions}
+              />) :(null) }
               {this.props.awsSettings.length > 0 ? (<MUIDataTable
                 className={"crackRatesTable"}
                 title={"Crack Rates"}
@@ -330,36 +358,21 @@ Profile.propTypes = {
   }).isRequired,
   awsSettings: PropTypes.array.isRequired,
   subsReady: PropTypes.bool.isRequired,
-  // remote example (if using ddp)
-  // usersReady: PropTypes.bool.isRequired,
-  // users: Meteor.user() ? PropTypes.array.isRequired : () => null,
-  // countersReady: PropTypes.bool.isRequired,
-  // counter: PropTypes.shape({
-  //   _id: PropTypes.string,
-  //   count: PropTypes.number,
-  // }),
 };
 
 export default withTracker(() => {
-  // remote example (if using ddp)
-  /*
-  const usersSub = Remote.subscribe('users.friends'); // publication needs to be set on remote server
-  const users = Users.find().fetch();
-  const usersReady = usersSub.ready() && !!users;
-  */
-
   const awsPricingSub = Meteor.subscribe('aws.getPricing');
   const awsSettingsSub = Meteor.subscribe('aws.getSettings');
+  const apiKeysSub = Meteor.subscribe('api.getKeys');
   const awsPricing = AWSCOLLECTION.find({type:'pricing'}).fetch();  
   const awsSettings = AWSCOLLECTION.find({type:'settings'}).fetch();
-  const subsReady = awsPricingSub.ready() && awsSettingsSub.ready() && !!awsPricing && !!awsSettings;
+  const apiKeys = APICollection.find().fetch();
+  const subsReady = awsPricingSub.ready() && awsSettingsSub.ready()  && !!awsPricing && !!awsSettings;
 
   return {
-    // remote example (if using ddp)
-    // usersReady,
-    // users,
     subsReady,
     awsPricing,
-    awsSettings
+    awsSettings,
+    apiKeys,
   };
 })(Profile);

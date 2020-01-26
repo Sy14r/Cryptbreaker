@@ -324,10 +324,13 @@ class HashFileDetails extends React.Component {
             if(searchQuery.toLowerCase().split(':')[1].includes('user.ingroup')){
                 let splitVal = searchQuery.split(':')[1].split(" ")
                 if(splitVal.length > 1){
-                  if(splitVal[1].length > 0 && (splitVal[1].match(/"/g)||[]).length == 2){
+                  // console.log(splitVal)
+                  // console.log(searchQuery.match(/"/g)||[])
+                  if((searchQuery.match(/"/g)||[]).length == 2){
                     // console.log(splitVal[1].split('"')[1])
                     // console.log(currentRow[4][fileFromID._id])
-                    let groupString = splitVal[1].split('"')[1]
+                    let groupString = searchQuery.split('"')[1]
+                    // console.log(groupString)
                     if(typeof fileFromID.groups !== 'undefined') {
                       for (let [key, value] of Object.entries(fileFromID.groups)) {
                         // console.log(`${key}: ${value}`);

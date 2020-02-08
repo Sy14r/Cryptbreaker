@@ -203,132 +203,135 @@ function processPotfile(filename, s3Obj, job){
                 _.each(content.split('\n'), (line)=>{
                     if(line.length >0){
                         let splitVal = line.split(':')
-                        // console.log(splitVal[0])
-                        // console.log(splitVal[1])
-                        // let hash = Hashes.findOne({'data': regex})
-                        // console.log(`${splitVal[0]} - ${hash}`)
-                        // gonna have to deal with hashes with dollarsigns...
-                        if(splitVal[0].length === 32) {
-                            // NTLM hash for current support
-                            let regex = new RegExp("^" + splitVal[0].toLowerCase(), "i") 
-                            // Increment the counter for how many cracked hashes there are for ntlm...
-                            let hash = Hashes.find({"data":regex}).fetch()
-                            let hashPreviouslyCracked = false
-                            if(typeof hash[0].meta !== 'undefined' && typeof hash[0].meta.cracked !== 'undefined' && hash[0].meta.cracked === true) {
-                                hashPreviouslyCracked = true
-                            }
-                            //console.log(`RAW LINE: ${JSON.stringify(splitVal)}`)
-                            let update
-                            let textToEvaluate = splitVal[1]
-                            if(splitVal[1].includes('[space]')){
-                                textToEvaluate = splitVal[1].replace(/\[space\]/g," ")
-                            }
-                            let plaintextStats = {
-                                length: textToEvaluate.length,
-                                upperCount: (textToEvaluate.match(/[A-Z]/g) || []).length,
-                                lowerCount: (textToEvaluate.match(/[a-z]/g) || []).length,
-                                numberCount: (textToEvaluate.match(/[0-9]/g) || []).length,
-                                symbolCount: (textToEvaluate.match(/[-!$%^&*()@_+|~=`{}\[\]:";'<>?,.\/\ ]/g) || []).length,
-                            }
-                            if(splitVal[2].length > 0){
-                                foundLists = splitVal[2].replace(/,$/,"").split(",")
-                                let categorizedFindings = passwordListsToCategories(foundLists)
-                                update = Hashes.update({"data":regex},{$set:{'meta.plaintext':`${splitVal[1]}`,'meta.cracked':true,'meta.plaintextStats':plaintextStats,'meta.lists':foundLists,'meta.listCategories':categorizedFindings[0],'meta.breachesObserved':categorizedFindings[1]}})
-                            } else {
-                                update = Hashes.update({"data":regex},{$set:{'meta.plaintext':`${splitVal[1]}`,'meta.cracked':true,'meta.plaintextStats':plaintextStats}})
-                            }
-                            if(!update){
-                                throw new Meteor.Error(500,"500 Internal Server Error","Unable to update plaintext in processPotfile function")
-                            }   
-                            // console.log("HASH CRACKED NTLM")
-                            if(!hashPreviouslyCracked){
-                                _.each(hash[0].meta.source, (source) => {
-                                    let hashFile = HashFiles.find({"_id":source}).fetch()
-                                    // console.log(hashFile)
-                                    let newCount = hashFile[0].crackCount + 1
-                                    HashFiles.update({"_id":hashFile[0]._id},{$set:{'crackCount':newCount}})
-                                })
-                            }                            
-                        } else if(splitVal[0].length === 16) {
-                            hadLMHash = true
-                            // LM hash for current support -- NEED TO ADD LOGIC FOR LM HASHES AND PASSWORD LISTS...
-                            let regexFirst = new RegExp("^" + splitVal[0].toLowerCase(), "i") 
-                            let regexLast = new RegExp(splitVal[0].toLowerCase()+"$", "i") 
-                            let hash = Hashes.find({"data":regexFirst}).fetch()
-                            let hash2 = Hashes.find({"data":regexLast}).fetch()
-                            let hashCracked = false
-                            if(hash.length > 0) {
-                                _.each(hash, (theHash) => {
-                                    let currPlain = ''
-                                    let plaintextStats = {}
-                                    if(typeof theHash.meta.plaintext !== 'undefined'){
-                                        currPlain = theHash.meta.plaintext
-                                        hashCracked = true
-                                        let textToEvaluate = splitVal[1]+currPlain
-                                        if(textToEvaluate.includes('[space]')){
-                                            textToEvaluate = textToEvaluate.replace(/\[space\]/g," ")
+                        if(typeof splitVal[1] !== 'undefined' && splitVal[1].length > 0) {
+                            // console.log(splitVal[0])
+                            // console.log(splitVal[1])
+                            // let hash = Hashes.findOne({'data': regex})
+                            // console.log(`${splitVal[0]} - ${hash}`)
+                            // gonna have to deal with hashes with dollarsigns...
+                            if(splitVal[0].length === 32) {
+                                // NTLM hash for current support
+                                let regex = new RegExp("^" + splitVal[0].toLowerCase(), "i") 
+                                // Increment the counter for how many cracked hashes there are for ntlm...
+                                let hash = Hashes.find({"data":regex}).fetch()
+                                let hashPreviouslyCracked = false
+                                if(typeof hash[0].meta !== 'undefined' && typeof hash[0].meta.cracked !== 'undefined' && hash[0].meta.cracked === true) {
+                                    hashPreviouslyCracked = true
+                                }
+                                //console.log(`RAW LINE: ${JSON.stringify(splitVal)}`)
+                                let update
+                                let textToEvaluate = splitVal[1]
+                                if(splitVal[1].includes('[space]')){
+                                    textToEvaluate = splitVal[1].replace(/\[space\]/g," ")
+                                }
+                                let plaintextStats = {
+                                    length: textToEvaluate.length,
+                                    upperCount: (textToEvaluate.match(/[A-Z]/g) || []).length,
+                                    lowerCount: (textToEvaluate.match(/[a-z]/g) || []).length,
+                                    numberCount: (textToEvaluate.match(/[0-9]/g) || []).length,
+                                    symbolCount: (textToEvaluate.match(/[-!$%^&*()@_+|~=`{}\[\]:";'<>?,.\/\ ]/g) || []).length,
+                                }
+                                if(splitVal[2].length > 0){
+                                    foundLists = splitVal[2].replace(/,$/,"").split(",")
+                                    let categorizedFindings = passwordListsToCategories(foundLists)
+                                    update = Hashes.update({"data":regex},{$set:{'meta.plaintext':`${splitVal[1]}`,'meta.cracked':true,'meta.plaintextStats':plaintextStats,'meta.lists':foundLists,'meta.listCategories':categorizedFindings[0],'meta.breachesObserved':categorizedFindings[1]}})
+                                } else {
+                                    update = Hashes.update({"data":regex},{$set:{'meta.plaintext':`${splitVal[1]}`,'meta.cracked':true,'meta.plaintextStats':plaintextStats}})
+                                }
+                                if(!update){
+                                    throw new Meteor.Error(500,"500 Internal Server Error","Unable to update plaintext in processPotfile function")
+                                }   
+                                // console.log("HASH CRACKED NTLM")
+                                if(!hashPreviouslyCracked){
+                                    _.each(hash[0].meta.source, (source) => {
+                                        let hashFile = HashFiles.find({"_id":source}).fetch()
+                                        // console.log(hashFile)
+                                        let newCount = hashFile[0].crackCount + 1
+                                        HashFiles.update({"_id":hashFile[0]._id},{$set:{'crackCount':newCount}})
+                                    })
+                                }                            
+                            } else if(splitVal[0].length === 16) {
+                                hadLMHash = true
+                                // LM hash for current support -- NEED TO ADD LOGIC FOR LM HASHES AND PASSWORD LISTS...
+                                let regexFirst = new RegExp("^" + splitVal[0].toLowerCase(), "i") 
+                                let regexLast = new RegExp(splitVal[0].toLowerCase()+"$", "i") 
+                                let hash = Hashes.find({"data":regexFirst}).fetch()
+                                let hash2 = Hashes.find({"data":regexLast}).fetch()
+                                let hashCracked = false
+                                if(hash.length > 0) {
+                                    _.each(hash, (theHash) => {
+                                        let currPlain = ''
+                                        let plaintextStats = {}
+                                        if(typeof theHash.meta.plaintext !== 'undefined'){
+                                            currPlain = theHash.meta.plaintext
+                                            hashCracked = true
+                                            let textToEvaluate = splitVal[1]+currPlain
+                                            if(textToEvaluate.includes('[space]')){
+                                                textToEvaluate = textToEvaluate.replace(/\[space\]/g," ")
+                                            }
+                                            plaintextStats = {
+                                                length: textToEvaluate.length,
+                                                upperCount: (textToEvaluate.match(/[A-Z]/g) || []).length,
+                                                lowerCount: (textToEvaluate.match(/[a-z]/g) || []).length,
+                                                numberCount: (textToEvaluate.match(/[0-9]/g) || []).length,
+                                                symbolCount: (textToEvaluate.match(/[-!$%^&*()@_+|~=`{}\[\]:";'<>?,.\/\ ]/g) || []).length,
+                                            }
                                         }
-                                        plaintextStats = {
-                                            length: textToEvaluate.length,
-                                            upperCount: (textToEvaluate.match(/[A-Z]/g) || []).length,
-                                            lowerCount: (textToEvaluate.match(/[a-z]/g) || []).length,
-                                            numberCount: (textToEvaluate.match(/[0-9]/g) || []).length,
-                                            symbolCount: (textToEvaluate.match(/[-!$%^&*()@_+|~=`{}\[\]:";'<>?,.\/\ ]/g) || []).length,
+                                        let update = Hashes.update({"_id":theHash._id},{$set:{'meta.plaintext':`${splitVal[1]+currPlain}`}})
+                                        if(!update){
+                                            throw new Meteor.Error(500,"500 Internal Server Error","Unable to update plaintext in processPotfile function")
+                                        } 
+                                        if(hashCracked) {
+                                            // console.log("HASH CRACKED LM")
+                                            Hashes.update({"_id":theHash._id},{$set:{'meta.cracked':true,'meta.plaintextStats':plaintextStats}})
+                                            _.each(theHash.meta.source, (source) => {
+                                                let hashFile = HashFiles.find({"_id":source}).fetch()
+                                                // console.log(hashFile)
+                                                let newCount = hashFile[0].crackCount + 1
+                                                HashFiles.update({"_id":hashFile[0]._id},{$set:{'crackCount':newCount}})
+                                            })
                                         }
-                                    }
-                                    let update = Hashes.update({"_id":theHash._id},{$set:{'meta.plaintext':`${splitVal[1]+currPlain}`}})
-                                    if(!update){
-                                        throw new Meteor.Error(500,"500 Internal Server Error","Unable to update plaintext in processPotfile function")
-                                    } 
-                                    if(hashCracked) {
-                                        // console.log("HASH CRACKED LM")
-                                        Hashes.update({"_id":theHash._id},{$set:{'meta.cracked':true,'meta.plaintextStats':plaintextStats}})
-                                        _.each(theHash.meta.source, (source) => {
-                                            let hashFile = HashFiles.find({"_id":source}).fetch()
-                                            // console.log(hashFile)
-                                            let newCount = hashFile[0].crackCount + 1
-                                            HashFiles.update({"_id":hashFile[0]._id},{$set:{'crackCount':newCount}})
-                                        })
-                                    }
-                                })
-                                
-                            } else if(hash2.length > 0){
-                                _.each(hash2, (theHash) => {
-                                    let plaintextStats = {}
-                                    let currPlain = ''
-                                    if(typeof theHash.meta.plaintext !== 'undefined'){
-                                        currPlain = theHash.meta.plaintext
-                                        hashCracked = true
-                                        let textToEvaluate = currPlain+splitVal[1]
-                                        if(textToEvaluate.includes('[space]')){
-                                            textToEvaluate = textToEvaluate.replace(/\[space\]/g," ")
+                                    })
+                                    
+                                } else if(hash2.length > 0){
+                                    _.each(hash2, (theHash) => {
+                                        let plaintextStats = {}
+                                        let currPlain = ''
+                                        if(typeof theHash.meta.plaintext !== 'undefined'){
+                                            currPlain = theHash.meta.plaintext
+                                            hashCracked = true
+                                            let textToEvaluate = currPlain+splitVal[1]
+                                            if(textToEvaluate.includes('[space]')){
+                                                textToEvaluate = textToEvaluate.replace(/\[space\]/g," ")
+                                            }
+                                            plaintextStats = {
+                                                length: textToEvaluate.length,
+                                                upperCount: (textToEvaluate.match(/[A-Z]/g) || []).length,
+                                                lowerCount: (textToEvaluate.match(/[a-z]/g) || []).length,
+                                                numberCount: (textToEvaluate.match(/[0-9]/g) || []).length,
+                                                symbolCount: (textToEvaluate.match(/[-!$%^&*()@_+|~=`{}\[\]:";'<>?,.\/\ ]/g) || []).length,
+                                            }
                                         }
-                                        plaintextStats = {
-                                            length: textToEvaluate.length,
-                                            upperCount: (textToEvaluate.match(/[A-Z]/g) || []).length,
-                                            lowerCount: (textToEvaluate.match(/[a-z]/g) || []).length,
-                                            numberCount: (textToEvaluate.match(/[0-9]/g) || []).length,
-                                            symbolCount: (textToEvaluate.match(/[-!$%^&*()@_+|~=`{}\[\]:";'<>?,.\/\ ]/g) || []).length,
+                                        let update = Hashes.update({"_id":theHash._id},{$set:{'meta.plaintext':`${currPlain+splitVal[1]}`}})
+                                        if(!update){
+                                            throw new Meteor.Error(500,"500 Internal Server Error","Unable to update plaintext in processPotfile function")
+                                        }    
+                                        if(hashCracked) {
+                                            // console.log("HASH CRACKED LM")
+                                            Hashes.update({"_id":theHash._id},{$set:{'meta.cracked':true,'meta.plaintextStats':plaintextStats}})
+                                            _.each(theHash.meta.source, (source) => {
+                                                let hashFile = HashFiles.find({"_id":source}).fetch()
+                                                // console.log(hashFile)
+                                                let newCount = hashFile[0].crackCount + 1
+                                                HashFiles.update({"_id":hashFile[0]._id},{$set:{'crackCount':newCount}})
+                                            })
                                         }
-                                    }
-                                    let update = Hashes.update({"_id":theHash._id},{$set:{'meta.plaintext':`${currPlain+splitVal[1]}`}})
-                                    if(!update){
-                                        throw new Meteor.Error(500,"500 Internal Server Error","Unable to update plaintext in processPotfile function")
-                                    }    
-                                    if(hashCracked) {
-                                        // console.log("HASH CRACKED LM")
-                                        Hashes.update({"_id":theHash._id},{$set:{'meta.cracked':true,'meta.plaintextStats':plaintextStats}})
-                                        _.each(theHash.meta.source, (source) => {
-                                            let hashFile = HashFiles.find({"_id":source}).fetch()
-                                            // console.log(hashFile)
-                                            let newCount = hashFile[0].crackCount + 1
-                                            HashFiles.update({"_id":hashFile[0]._id},{$set:{'crackCount':newCount}})
-                                        })
-                                    }
-                                })
-                            }                              
+                                    })
+                                }                              
 
+                            }
                         }
+                        
                     }  
                 })
                 // After all of the hash processing, if we had an LM hash then we also need to look for the edge case of the blank hash

@@ -1547,6 +1547,7 @@ Meteor.methods({
                 if(crackJobID){
                     // We will add .25 to the rate chosen, and will allow this to be user controlled eventually...
                     let price = (parseFloat(data.rate) + 0.25).toFixed(2)
+
                     let userDataString = `#!/bin/bash
 sudo systemctl stop sshd.service
 sudo systemctl disable sshd.service
@@ -1646,7 +1647,8 @@ if(hashTypes.includes("NTLM")){
         userDataString += `
         if [ -f /home/ubuntu/hashwrap.pause ];
         then
-            echo "Skipping due to pause"        else
+            echo "Skipping due to pause"        
+        else
             sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 3 -m 1000 --session ${randomVal} /home/ubuntu/${randomVal}.NTLM.credentials -o brute.txt -i ${bruteMask} -O -w 3 &
             while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
             do 

@@ -18,3 +18,7 @@ import '../../api/hashes/publications.js';
 // aws api
 import '../../api/aws/methods.js';
 import '../../api/aws/publications.js';
+
+// cryptbreaker api
+import '../../api/api/methods.js';
+import '../../api/api/publications.js';

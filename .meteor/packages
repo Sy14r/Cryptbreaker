@@ -42,3 +42,4 @@ tunifight:loggedin-mixin
 underscore@1.0.10
 ostrio:files
 littledata:synced-cron
+simple:json-routes

@@ -26,17 +26,6 @@ class CustomAPIToolbar extends React.Component {
           animation:false,
         })
       }
-      // else {
-      //   Swal.fire({
-      //     title: 'Upload Successful',
-      //     text: 'It may take a moment for results to populate based off of uploaded file size',
-      //     type: 'success',
-      //     timer:3000,
-      //     toast:true,
-      //     position:'top-right',
-      //     animation:false,
-      //   })
-      // }
     })
   }
 

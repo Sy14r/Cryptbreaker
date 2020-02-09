@@ -7,7 +7,14 @@ const bound = Meteor.bindEnvironment((callback) => {callback();});
 
 Meteor.methods({
     async createKey(data) {
-        console.log("CREATE KEY")
+        const uuidv4 = require('uuid/v4');
+        let randomVal = uuidv4();
+        APICollection.insert({'secret':randomVal,'userID':this.userId,'status':'Created','creationDate':new Date()});
+        return true; 
+    },
+    async delteAPIKeyByID(data) {
+        let APIKey = APICollection.findOne({'_id':data,'userID':this.userId})
+        typeof APIKey !== 'undefined' ? APICollection.remove(APIKey) : null
         return true; 
     },
 });

@@ -621,7 +621,6 @@ async function processUpload(fileName, fileData, isBase64, providedID){
         processRawHashFile(fileName,fileData, date)     
     } else { 
         // console.log("'Normal' Upload")
-        // console.log(isBase64)
         // console.log(fileData);
         let text = ""
         if(isBase64){
@@ -1474,6 +1473,8 @@ Meteor.methods({
 
     async crackHashes(data){
         if(Roles.userIsInRole(Meteor.userId(), ['admin','hashes.crack'])){
+            console.log(data)
+            return
             let creds = AWSCOLLECTION.findOne({type:'creds'})
             if(creds){
                 let awsSettings = AWSCOLLECTION.findOne({'type':"settings"})

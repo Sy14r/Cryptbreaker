@@ -235,7 +235,10 @@ JsonRoutes.add("POST","/api/hashes/", (req,res,next) => {
             })
         }
         JsonRoutes.sendResult(res, {
-            data:`Hashes Uploaded: ${fileName}`
+            data:{
+                status:"success",
+                fileName:fileName
+            }
         })
 
     } else {
@@ -262,7 +265,10 @@ JsonRoutes.add("POST","/api/files/", (req,res,next) => {
         }
         APICollection.update({"secret":req.headers.apikey},{$set:{'status':`Hash File uploaded at ${new Date()}`}})
         JsonRoutes.sendResult(res, {
-            data:`Hashes Uploaded: ${req.body.fileName}`
+            data:{
+                status:"success",
+                fileName:req.body.fileName
+            }
         })
 
     } else {
@@ -281,21 +287,86 @@ JsonRoutes.add("POST","/api/files/", (req,res,next) => {
 })
 
 JsonRoutes.add("POST","/api/jobs/", (req,res,next) => {
-    console.log(req.body)
     let isValidRequest = true
     let validInstanceTypes = ["p3_2xl","p3_8xl","p3_16xl","p3dn_24xl"]
-    let validIds = HashFiles.find({},{fields:{"_id":1}}).fetch()
-    if(!validIds.includes(req.body.ids) || !validInstanceTypes.includes(req.body.instanceType) || typeof req.body.availabilityZone !== 'string' || typeof req.body.rate !== 'string' || typeof req.body.maskingOption !== 'object'){
+    let validIds = []
+    let allIds = HashFiles.find({},{fields:{"_id":1}}).fetch()
+    _.each(allIds, (id) => {
+        validIds.push(id._id)
+    })
+    _.each(req.body.ids, (id) => {
+        if(!validIds.includes(id)){
+            validRequest = false
+        }
+    })
+    // initial validation of quick types
+    if(!validInstanceTypes.includes(req.body.instanceType) || typeof req.body.availabilityZone !== 'string' || req.body.availabilityZone.match(/[${}:"]/g) || typeof req.body.rate !== 'string' || req.body.rate.match(/[${}:"]/g)){
         isValidRequest = false
     }
-    console.log(req.body)
     if(isValidRequest){
+        let crackJobData = {
+            ids: req.body.ids,
+            duration: 1,
+            instanceType: req.body.instanceType,
+            availabilityZone: req.body.availabilityZone,
+            rate: req.body.rate,
+            maskingOption:{
+                redactionNone: true,
+                redactionCharacter: false,
+                redactionLength: false,
+                redactionFull: false
+            },
+            useDictionaries:true,
+            bruteLimit:"7"
+        }
+        // intelligent handling of masking option
+        if(typeof req.body.maskingOption === 'object'){
+            if(typeof req.body.maskingOption.redactionNone === 'boolean'){
+                if(req.body.maskingOption.redactionNone === true) {
+                    crackJobData.maskingOption.redactionNone = true
+                    crackJobData.maskingOption.redactionCharacter = false
+                    crackJobData.maskingOption.redactionLength = false
+                    crackJobData.maskingOption.redactionFull = false
+                }
+                if(req.body.maskingOption.redactionCharacter === true) {
+                    crackJobData.maskingOption.redactionNone = false
+                    crackJobData.maskingOption.redactionCharacter = true
+                    crackJobData.maskingOption.redactionLength = false
+                    crackJobData.maskingOption.redactionFull = false
+                }
+                if(req.body.maskingOption.redactionLength === true) {
+                    crackJobData.maskingOption.redactionNone = false
+                    crackJobData.maskingOption.redactionCharacter = false
+                    crackJobData.maskingOption.redactionLength = true
+                    crackJobData.maskingOption.redactionFull = false
+                }
+                if(req.body.maskingOption.redactionFull === true) {
+                    crackJobData.maskingOption.redactionNone = false
+                    crackJobData.maskingOption.redactionCharacter = false
+                    crackJobData.maskingOption.redactionLength = false
+                    crackJobData.maskingOption.redactionFull = true
+                }
+            }
+        }
+        // intelligent handling of useDictionaries
+        if(typeof req.body.useDictionaries === 'boolean'){
+            crackJobData.useDictionaries = req.body.useDictionaries
+        }
+        // intelligent handling of bruteLimit
+        if(typeof req.body.bruteLimit === 'string'){
+            let pInt = parseInt(req.body.bruteLimit,10)
+            if(isNaN(pInt)){
+                pInt = 0
+            }
+            crackJobData.bruteLimit = `${pInt}`
+        }
+        console.log(crackJobData)
         JsonRoutes.sendResult(res, {
-            data:`Hashes Uploaded: ${req.body.fileName}`
+            data:`Request Validated`
         })
     } else {
         JsonRoutes.sendResult(res, {
-            data:`Hashes Uploaded: ${req.body.fileName}`
+            data:`Request Failed Validation`
         })
     }
 })
@@ -303,17 +374,17 @@ JsonRoutes.add("POST","/api/jobs/", (req,res,next) => {
 // For cracking Hashes
 /*
 Below is data sent to the crackHashes function to start a hash cracking job
-{ ids: [ '2ukCQ9JEHKwhQuN3k' ],   
-  duration: 1,                    
-  instanceType: 'p3_2xl',         
-  availabilityZone: 'us-east-1a', 
-  rate: '0.924500',               
-  maskingOption:                  
+{ ids: [ '2ukCQ9JEHKwhQuN3k' ],    << REQUIRED
+  duration: 1,                     << NEVER YS SET TO 1 for now
+  instanceType: 'p3_2xl',          << REQUIRED
+  availabilityZone: 'us-east-1a',  << REQUIRED
+  rate: '0.924500',                << REQUIRED
+  maskingOption:                   << NOT REQUIRED BUT BUILT INTELLIGENTLY
    { redactionNone: true,         
      redactionCharacter: false,   
      redactionLength: false,      
      redactionFull: false,        
      configureAdvanced: false },  
-  useDictionaries: true,          
-  bruteLimit: '7' }               
+  useDictionaries: true,           << NOT REQUIRED BUT USED INTELLIGENTLY
+  bruteLimit: '7' }                << NOT REQUIRED BUT USED INTELLIGENTLY
 */

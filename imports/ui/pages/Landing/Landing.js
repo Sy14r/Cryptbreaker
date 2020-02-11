@@ -102,7 +102,7 @@ class Landing extends React.Component {
       return
     }
     // let id = event.target.getAttribute('rowid') ? event.target.getAttribute('rowid') : (event._targetInst.pendingProps.rowid ? event._targetInst.pendingProps.rowid : event._targetInst.stateNode.ownerSVGElement.getAttribute('rowid'))
-    Meteor.call('pauseCrackJob',id, (err) =>   {
+    Meteor.call('pauseCrack',id, (err) =>   {
       if(typeof err !== 'undefined'){
         // If we had an error...
         Swal.fire({

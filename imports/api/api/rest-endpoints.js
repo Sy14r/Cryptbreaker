@@ -3,6 +3,8 @@ import { Roles } from 'meteor/alanning:roles';
 import { APICollection } from './api.js';
 import { AWSCOLLECTION } from '/imports/api/aws/aws.js';
 import { Hashes, HashFiles, HashCrackJobs, HashFileUploadJobs } from '/imports/api/hashes/hashes.js';
+import { queueCrackJob, pauseCrackJob, resumeCrackJob, deleteCrackJobs } from '../hashes/methods.js';
+import { refereshSpotPricing } from '../aws/methods.js';
 import _ from 'lodash';
 
 
@@ -17,7 +19,7 @@ JsonRoutes.Middleware.use((req, res, next) => {
         }
         // if the user is authorized, add the userID to the req and continue processing
         else {
-            req.userID = apiKey.userID
+            req.userId = apiKey.userID
             let splitURL = req.url.split("?")
             let urlParams = {}
             let caseSensitiveParams = ["name"]
@@ -64,6 +66,11 @@ JsonRoutes.add("GET","/api/files/:fileID", (req,res,next) => {
         JsonRoutes.sendResult(res, {
             data:HashFiles.findOne({'_id':req.params.fileID})
         })
+    } else {
+        JsonRoutes.sendResult(res, {
+            code:400,
+            data:{message:"Invalid request submitted"}
+        })
     }
 })
 
@@ -100,12 +107,25 @@ JsonRoutes.add("GET","/api/pricing/refresh", (req,res,next) => {
     })
 })
 
-JsonRoutes.add("GET","/api/pricing", (req,res,next) => {
-    APICollection.update({"secret":req.headers.apikey},{$set:{'status':`AWS pricing retrieved at ${new Date()}`}})
-    let pricing = AWSCOLLECTION.findOne({type:'pricing'})
-    JsonRoutes.sendResult(res, {
-        data:pricing.data
-    })
+JsonRoutes.add("GET","/api/pricing", async (req,res,next) => {
+    try {
+        APICollection.update({"secret":req.headers.apikey},{$set:{'status':`AWS pricing retrieved at ${new Date()}`}})
+        //pauseCrackJob(req.params.jobID)
+        refereshSpotPricing()
+        let promise = new Promise((res, rej) => {
+            setTimeout(() => res("Now it's done!"), 3000)
+        });
+        await promise;
+        let pricing = AWSCOLLECTION.findOne({type:'pricing'})
+        JsonRoutes.sendResult(res, {
+            data:pricing.data
+        })
+        }catch {
+        JsonRoutes.sendResult(res, {
+            code:400,
+            data:{message:"Invalid request submitted"}
+        })
+    }
 })
 
 //Add url parameters for filters? (at least cracked/uncracked)
@@ -360,31 +380,127 @@ JsonRoutes.add("POST","/api/jobs/", (req,res,next) => {
             }
             crackJobData.bruteLimit = `${pInt}`
         }
-        console.log(crackJobData)
+        let crackJobID = queueCrackJob(crackJobData)
         JsonRoutes.sendResult(res, {
-            data:`Request Validated`
+            data:{
+                status:"request processed",
+                crackJobId: crackJobID
+            }
         })
     } else {
         JsonRoutes.sendResult(res, {
-            data:`Request Failed Validation`
+            code:400,
+            data:{
+                message:"Invalid crack job request. Please provide in the following format",
+                formatExplanation:{
+                    "ids": ["array of file ids to crack (Required)"],
+                    "instanceType": "one of p3_2x1, p3_8xl, p3_16xl (Required - see /api/pricing for best option)",
+                    "availabilityZone":"a valid Amazon availablity zone (Required - see /api/pricing for best option)",
+                    "rate":"A maximum bid for your crack job ie: \"1.0\" for one dollar. (Required - - see /api/pricing for best option)",
+                    "maskingOption":{
+                        "redactionNone":"true/false value specifiying if any redaction should occur before plaintext exfiltrated from cracking server - IE Passw0rd! -> Passw0rd!",
+                        "redactionCharacter":"true/false value specifiying if character class substitution should occur before plaintext exfiltrated from cracking server - IE Passw0rd! -> Ullll0ll*",
+                        "redactionLength":"true/false value specifiying if full masking should occur before plaintext exfiltrated from cracking server - IE Passw0rd! -> *********",
+                        "redactionFull":"true/false value specifiying if full redaction should occur before plaintext exfiltrated from cracking server - IE Passw0rd! -> cracked"
+                    },
+                    "useDictionaries":"true/false value specifying dictionary attacks should occur (false means only brute force, defaults to true)",
+                    "bruteLimit":"string representing maximum lenght for brute force attempts (0 means do not brute for at all, defaults to \"7\")"
+                },
+                sampleFormat:{
+                    ids: [ '2ukCQ9JEHKwhQuN3k' ],   
+                    duration: 1,                   
+                    instanceType: 'p3_2xl',         
+                    availabilityZone: 'us-east-1a', 
+                    rate: '0.924500',               
+                    maskingOption: {
+                        redactionNone: true,         
+                        redactionCharacter: false,   
+                        redactionLength: false,      
+                        redactionFull: false,        
+                    },  
+                    useDictionaries: true,          
+                    bruteLimit: '0'
+                }
+            }
         })
     }
 })
 
-// For cracking Hashes
-/*
-Below is data sent to the crackHashes function to start a hash cracking job
-{ ids: [ '2ukCQ9JEHKwhQuN3k' ],    << REQUIRED
-  duration: 1,                     << NEVER YS SET TO 1 for now
-  instanceType: 'p3_2xl',          << REQUIRED
-  availabilityZone: 'us-east-1a',  << REQUIRED
-  rate: '0.924500',                << REQUIRED
-  maskingOption:                   << NOT REQUIRED BUT BUILT INTELLIGENTLY
-   { redactionNone: true,         
-     redactionCharacter: false,   
-     redactionLength: false,      
-     redactionFull: false,        
-     configureAdvanced: false },  
-  useDictionaries: true,           << NOT REQUIRED BUT USED INTELLIGENTLY
-  bruteLimit: '7' }                << NOT REQUIRED BUT USED INTELLIGENTLY
-*/
+JsonRoutes.add("GET","/api/jobs/:jobID/pause", (req,res,next) => {
+    if(!req.params.jobID.match(/[${}:"]/g)){
+        APICollection.update({"secret":req.headers.apikey},{$set:{'status':`Crack Job ${req.params.jobID} paused at ${new Date()}`}})
+        let result = pauseCrackJob(req.params.jobID)
+        JsonRoutes.sendResult(res, {
+            data:{message:result}
+        })
+    } else {
+        JsonRoutes.sendResult(res, {
+            code:400,
+            data:{message:"Invalid request submitted"}
+        })
+    }
+})
+
+JsonRoutes.add("GET","/api/jobs/:jobID/resume", async (req,res,next) => {
+    try {
+        if(!req.params.jobID.match(/[${}:"]/g)){
+
+            APICollection.update({"secret":req.headers.apikey},{$set:{'status':`Crack Job ${req.params.jobID} paused at ${new Date()}`}})
+            //pauseCrackJob(req.params.jobID)
+            let theJob = HashCrackJobs.findOne({"_id":req.params.jobID})
+            let instanceMapping = {'p3.2xlarge':'p3_2xl','p3.8xlarge':'p3_8xl','p3.16xlarge':'p3_16xl'}
+            let theInstanceType = instanceMapping[theJob.instanceType]
+            refereshSpotPricing()
+            let promise = new Promise((res, rej) => {
+                setTimeout(() => res("Now it's done!"), 3000)
+            });
+            await promise;
+            let pricing = AWSCOLLECTION.findOne({type:'pricing'})
+            let resumeData = {
+                id:req.params.jobID,
+                instanceType: theInstanceType,
+                availabilityZone:pricing.data[theInstanceType].az,
+                rate:pricing.data[theInstanceType].cheapest           
+            }
+            let resultMessage = resumeCrackJob(resumeData)
+            JsonRoutes.sendResult(res, {
+                data:{message:resultMessage}
+            })
+        } else {
+            JsonRoutes.sendResult(res, {
+                code:400,
+                data:{message:"Invalid request submitted"}
+            })
+        } }catch {
+            JsonRoutes.sendResult(res, {
+                code:400,
+                data:{message:"Invalid request submitted"}
+            })
+        }
+    
+})
+
+JsonRoutes.add("GET","/api/jobs/:jobID/delete", (req,res,next) => {
+    if(!req.params.jobID.match(/[${}:"]/g)){
+        let theHCJ = HashCrackJobs.findOne({"_id":req.params.jobID})
+        if(theHCJ.status === 'Job Completed' || theHCJ.status === 'Job Paused'){
+           // then delete else return error
+           APICollection.update({"secret":req.headers.apikey},{$set:{'status':`Crack Job ${req.params.jobID} deleted at ${new Date()}`}})
+           deleteCrackJobs([theHCJ.uuid])
+           JsonRoutes.sendResult(res, {
+               data:{message:`${req.params.jobID} - deleted`}
+           })
+        } else {
+            JsonRoutes.sendResult(res, {
+                code:400,
+                data:{message:`Cannot delete Job ${req.params.jobID}. Please verify the job is Completed or Paused and try again.`}
+            })
+        }
+
+    } else {
+        JsonRoutes.sendResult(res, {
+            code:400,
+            data:{message:"Invalid request submitted"}
+        })
+    }
+})

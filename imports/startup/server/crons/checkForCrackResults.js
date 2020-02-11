@@ -1,6 +1,7 @@
 import { Meteor } from 'meteor/meteor';
 import { Hashes, HashFiles, HashCrackJobs } from '/imports/api/hashes/hashes.js';
 import { AWSCOLLECTION } from '/imports/api/aws/aws.js';
+import { tagInstance } from '/imports/api/hashes/methods.js';
 // var AWS = require('aws-sdk');
 
 import _ from 'lodash';
@@ -820,6 +821,13 @@ function checkForCrackResults() {
                 })
             }else {
                 // console.log("Instance running, need to check S3")
+                // now to tag the instance...
+ 
+                //believe this is the place to tag resources....
+                if(typeof job.isTagged === 'undefined'){
+                    tagInstance(job._id)
+                }                
+                
                 var params = {
                     Bucket: `${awsSettings.bucketName}`, 
                     Prefix: `${job.uuid}`

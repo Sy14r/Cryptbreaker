@@ -9,37 +9,44 @@ import _ from 'lodash';
 
 
 JsonRoutes.Middleware.use((req, res, next) => {
-    if(req.headers && req.headers.apikey){
-        var apiKey = APICollection.findOne({'secret':req.headers.apikey})
-        // if this isn't a valid user then return an unauthorized error
-        if(typeof apiKey ==='undefined'){
+    if(req.url.toLowerCase().startsWith('/api')){
+        if(req.headers && req.headers.apikey){
+            var apiKey = APICollection.findOne({'secret':req.headers.apikey})
+            // if this isn't a valid user then return an unauthorized error
+            if(typeof apiKey ==='undefined'){
+                JsonRoutes.sendResult(res, {
+                    code: 401
+                })
+            }
+            // if the user is authorized, add the userID to the req and continue processing
+            else {
+                req.userId = apiKey.userID
+                let splitURL = req.url.split("?")
+                let urlParams = {}
+                let caseSensitiveParams = ["name"]
+                if(splitURL.length > 1){
+                    _.each(splitURL[1].split("&"), (param) => {
+                        if(!param.match(/[${}:"]/g)){
+                            let splitParam = param.split("=")
+                            if(splitParam.length > 1){
+                                let paramKey = splitParam[0].toLowerCase()
+                                let paramValue = splitParam[1]
+                                if(!caseSensitiveParams.includes(paramKey)){
+                                    paramValue = paramValue.toLowerCase()
+                                }
+                                urlParams[paramKey] = paramValue
+                            }
+                        }
+                    })
+                }
+                req.urlParams = urlParams
+                next()
+            }
+        }
+        else {
             JsonRoutes.sendResult(res, {
                 code: 401
             })
-        }
-        // if the user is authorized, add the userID to the req and continue processing
-        else {
-            req.userId = apiKey.userID
-            let splitURL = req.url.split("?")
-            let urlParams = {}
-            let caseSensitiveParams = ["name"]
-            if(splitURL.length > 1){
-                _.each(splitURL[1].split("&"), (param) => {
-                    if(!param.match(/[${}:"]/g)){
-                        let splitParam = param.split("=")
-                        if(splitParam.length > 1){
-                            let paramKey = splitParam[0].toLowerCase()
-                            let paramValue = splitParam[1]
-                            if(!caseSensitiveParams.includes(paramKey)){
-                                paramValue = paramValue.toLowerCase()
-                            }
-                            urlParams[paramKey] = paramValue
-                        }
-                    }
-                })
-            }
-            req.urlParams = urlParams
-            next()
         }
     }
     else {

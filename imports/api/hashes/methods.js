@@ -1660,37 +1660,13 @@ aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.LM.credentials .
 aws s3 rm s3://${awsSettings.bucketName}/${randomVal}.LM.credentials
 fi
 `
-// Building towards basic and advanced cracking
-if(data.useDictionaries) {
-userDataString += `   
-if [ -f /home/ubuntu/hashwrap.pause ];
-then
-    echo "Skipping due to pause"    
-else 
-    sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 0 -m 3000 --session ${randomVal} /home/ubuntu/${randomVal}.LM.credentials /home/ubuntu/COMBINED-PASS.txt -r /home/ubuntu/Hob0Rules/d3adhob0.rule -o crackedLM.txt -O -w 3 &
-    while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
-    do 
-        aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.pause /home/ubuntu/hashwrap.pause;
-        if [ -f /home/ubuntu/hashwrap.pause ];
-        then
-            echo "Pausing LM Dictionary Attack" > /home/ubuntu/status.txt
-            aws s3 cp /home/ubuntu/status.txt s3://${awsSettings.bucketName}/${randomVal}.status;        
-        else
-            aws s3 cp /home/ubuntu/hashcat.status s3://${awsSettings.bucketName}/${randomVal}.status;
-        fi
-        sleep 30; 
-    done            
-    rm /home/ubuntu/hashcat.status
-fi
-`
-}
-if(data.bruteLimit !== "0" && data.bruteLimit !== "") {
+// for LM hashes it doesn't matter the brute force limit is as bruteforcing 7 is always the best option and the speed is such that its also incredibly fast
 userDataString += `
 if [ -f /home/ubuntu/hashwrap.pause ];
 then
     echo "Skipping due to pause"
 else
-    sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 3 -m 3000 --session ${randomVal} /home/ubuntu/${randomVal}.LM.credentials -o brute.txt -i ${bruteMask} -O -w 3 &
+    sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 3 -m 3000 --session ${randomVal} /home/ubuntu/${randomVal}.LM.credentials -o brute.txt -i ?a?a?a?a?a?a?a -O -w 3 &
     while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
     do 
         aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.pause /home/ubuntu/hashwrap.pause;
@@ -1706,7 +1682,7 @@ else
     rm /home/ubuntu/hashcat.status
 fi
 `
-}
+
 }
 // Logic for character swap
 // #while read line; do echo -n $line | cut -d ':' -f1 | tr -d '\n'; echo -n ":"; echo $line | cut -d':' -f2 | sed -e 's/[A-Z]/U/g' -e's/[a-z]/l/g' -e 's/[0-9]/0/g' -e 's/[[:punct:]]/*/g'; done < ./hashcat-5.1.0/hashcat.potfile
@@ -2070,41 +2046,7 @@ aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.LM.credentials .
 aws s3 rm s3://${awsSettings.bucketName}/${randomVal}.LM.credentials
 fi
 `
-// Building towards basic and advanced cracking
-if(theHCJ.stepPaused.includes(" LM Dictionary") || crackConfigDetails.useDictionaries) {
-userDataString += `   
-if [ -f /home/ubuntu/hashwrap.pause ];
-then
-    echo "Skipping due to pause"
-else
-`
-if(theHCJ.stepPaused.includes(" LM Dictionary")){
-    userDataString += `
-    sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin --session ${randomVal} --restore &
-    `
-} else {
-    userDataString += `
-    sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 0 -m 3000 --session ${randomVal} /home/ubuntu/${randomVal}.LM.credentials /home/ubuntu/COMBINED-PASS.txt -r /home/ubuntu/Hob0Rules/d3adhob0.rule -o crackedLM.txt -O -w 3 &
-    `
-}
-userDataString += `
-    while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
-    do 
-        aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.pause /home/ubuntu/hashwrap.pause;
-        if [ -f /home/ubuntu/hashwrap.pause ];
-        then
-            echo "Pausing LM Dictionary Attack" > /home/ubuntu/status.txt
-            aws s3 cp /home/ubuntu/status.txt s3://${awsSettings.bucketName}/${randomVal}.status;
-        else
-            aws s3 cp /home/ubuntu/hashcat.status s3://${awsSettings.bucketName}/${randomVal}.status;
-        fi
-        sleep 30; 
-    done            
-    rm /home/ubuntu/hashcat.status
-fi
-`
-}
-if(theHCJ.stepPaused.includes(" LM Brute") || (data.bruteLimit !== "0" && data.bruteLimit !== "")) {
+// If an LM crack job was paused it was paused during the brute force phase
 userDataString += `
 if [ -f /home/ubuntu/hashwrap.pause ];
 then
@@ -2117,7 +2059,7 @@ if(theHCJ.stepPaused.includes(" LM Brute")){
     `
 } else {
     userDataString += `
-    sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 3 -m 3000 --session ${randomVal} /home/ubuntu/${randomVal}.LM.credentials -o brute.txt -i ${bruteMask} -O -w 3 &
+    sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 3 -m 3000 --session ${randomVal} /home/ubuntu/${randomVal}.LM.credentials -o brute.txt -i ?a?a?a?a?a?a?a -O -w 3 &
     `
 }
 userDataString += `
@@ -2136,7 +2078,6 @@ userDataString += `
     rm /home/ubuntu/hashcat.status
 fi
 `
-}
 }
 // Logic for character swap
 // #while read line; do echo -n $line | cut -d ':' -f1 | tr -d '\n'; echo -n ":"; echo $line | cut -d':' -f2 | sed -e 's/[A-Z]/U/g' -e's/[a-z]/l/g' -e 's/[0-9]/0/g' -e 's/[[:punct:]]/*/g'; done < ./hashcat-5.1.0/hashcat.potfile

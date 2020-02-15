@@ -599,7 +599,7 @@ async function processRawHashFile(fileName, fileData, date){
     return
 }
 
-async function processUpload(fileName, fileData, isBase64, providedID){
+export async function processUpload(fileName, fileData, isBase64, providedID){
     const date = new Date();
     // console.log(`Tasked to delete following account\n${this.userId}`);
     // console.log(fileName);
@@ -619,6 +619,7 @@ async function processUpload(fileName, fileData, isBase64, providedID){
         // console.log("NEED TO PROCESS ZIP")
         processRawHashFile(fileName,fileData, date)     
     } else { 
+        let hashFileID = ''
         // console.log("'Normal' Upload")
         // console.log(fileData);
         let text = ""
@@ -647,7 +648,6 @@ async function processUpload(fileName, fileData, isBase64, providedID){
         if(totalHashes.length > 0){
             // console.log(JSON.stringify(totalHashes))
             // return
-            let hashFileID = ''
             let hashFileUploadJobID = ''
             if(isBase64) {
                 hashFileID = HashFiles.insert({name:fileName,hashCount:0,crackCount:0,uploadDate:date})
@@ -852,6 +852,7 @@ async function processUpload(fileName, fileData, isBase64, providedID){
                             // console.log(stats);
                             //return orderedItems;
                             HashFiles.update({"_id":`${hashFileID}`},{$set:{'passwordReuseStatsCracked':stats}})
+                            return hashFileID
                         })();
                     } catch (err) {
                         throw new Meteor.Error('E1235',err.message);
@@ -866,7 +867,7 @@ async function processUpload(fileName, fileData, isBase64, providedID){
         else {
             throw Error("No valid hashes parsed from upload, please open an issue on GitHub");
         }
-        return true;
+        return hashFileID;
     }    
 }
 
@@ -2343,7 +2344,7 @@ export function tagInstance(jobID){
            ]
            };
            ec2.createTags(params, function(err, data) {
-             if (err) throw new Meteor.Error(err.statusCode,err.code,err.message); // an error occurred
+             if (err) console.log(`${err.statusCode},${err.code},${err.message}`); // an error occurred
              else {
                 bound(() => { HashCrackJobs.update({"_id":job._id},{$set:{'isTagged':true}})})
              }    

@@ -3,7 +3,7 @@ import { Roles } from 'meteor/alanning:roles';
 import { APICollection } from './api.js';
 import { AWSCOLLECTION } from '/imports/api/aws/aws.js';
 import { Hashes, HashFiles, HashCrackJobs, HashFileUploadJobs } from '/imports/api/hashes/hashes.js';
-import { queueCrackJob, pauseCrackJob, resumeCrackJob, deleteCrackJobs } from '../hashes/methods.js';
+import { queueCrackJob, pauseCrackJob, resumeCrackJob, deleteCrackJobs, processUpload } from '../hashes/methods.js';
 import { refereshSpotPricing } from '../aws/methods.js';
 import _ from 'lodash';
 
@@ -83,8 +83,34 @@ JsonRoutes.add("GET","/api/files/:fileID", (req,res,next) => {
 
 JsonRoutes.add("GET","/api/jobs", (req,res,next) => {
     APICollection.update({"secret":req.headers.apikey},{$set:{'status':`Crack Jobs listed at ${new Date()}`}})
+    // ,{fields:{'_id':1,'uuid':1,'status':1}}
+    let theHCJs = HashCrackJobs.find({}).fetch()
+    let results = [];
+    _.each(theHCJs, (hcj) => {
+        let currHCJ = {}
+        currHCJ._id = hcj._id
+        currHCJ.uuid = hcj.uuid
+        currHCJ.status = hcj.status.trim()
+        if(typeof hcj.spotInstanceRequest !== 'undefined' && (hcj.status === "Hashes Uploaded" || hcj.status === "cancelled")){
+            if(hcj.spotInstanceRequest.Status.Code === "pending-evaluation"){
+                currHCJ.status = "Spot Request Pending"
+            } 
+            else if(hcj.spotInstanceRequest.Status.Code === "capacity-not-available"){
+                if(hcj.status == "cancelled"){
+                    currHCJ.status = "Spot Request Cancelled due to Lack of Capacity"
+                }else {
+                    currHCJ.status = "Spot Request Capacity Not Available, Cancelling"
+                }
+            }
+            else if(hcj.spotInstanceRequest.Status.Code === "fulfilled"){
+                currHCJ.status = "Upgrading and Installing Necessary Software"
+            }
+        }
+        results.push(currHCJ)
+    })
+
     JsonRoutes.sendResult(res, {
-        data:{crackJobs:HashCrackJobs.find({},{fields:{'_id':1,'uuid':1,'status':1}}).fetch()}
+        data:{crackJobs:results}
     })
 })
 
@@ -100,8 +126,25 @@ JsonRoutes.add("GET","/api/jobs/:jobID", (req,res,next) => {
 JsonRoutes.add("GET","/api/jobs/:jobID/status", (req,res,next) => {
     if(!req.params.jobID.match(/[${}:"]/g)){
         APICollection.update({"secret":req.headers.apikey},{$set:{'status':`Crack Job ${req.params.jobID} status checked at ${new Date()}`}})
+        let hcj = HashCrackJobs.findOne({'_id':req.params.jobID});
+        let status = hcj.status;
+        if(typeof hcj.spotInstanceRequest !== 'undefined' && (hcj.status === "Hashes Uploaded" || hcj.status === "cancelled")){
+            if(hcj.spotInstanceRequest.Status.Code === "pending-evaluation"){
+                status = "Spot Request Pending"
+            } 
+            else if(hcj.spotInstanceRequest.Status.Code === "capacity-not-available"){
+              if(hcj.status == "cancelled"){
+                status = "Spot Request Cancelled due to Lack of Capacity"
+              }else {
+                status = "Spot Request Capacity Not Available, Cancelling"
+              }
+            }
+            else if(hcj.spotInstanceRequest.Status.Code === "fulfilled"){
+                status = "Upgrading and Installing Necessary Software"
+            }
+          }
         JsonRoutes.sendResult(res, {
-            data:HashCrackJobs.findOne({'_id':req.params.jobID},{fields:{'status':1}})
+            data:{"status":status.trim()}
         })
     }
 })
@@ -206,7 +249,7 @@ JsonRoutes.add("POST","/api/hashes/check", (req,res,next) => {
     let hashesToCheck = []
     _.each(req.body.hashes, (hash) => {
         if(typeof hash === 'string' && !hash.match(/[${}:"]/g)){
-            hashesToCheck.push(hash)
+            hashesToCheck.push(hash.toUpperCase())
         }
     })
     hashesToRet = Hashes.find({'data':{$in: hashesToCheck}},{fields:{'data':1,'meta.type':1,'meta.plaintext':1,'meta.cracked':1}}).fetch();
@@ -280,10 +323,11 @@ JsonRoutes.add("POST","/api/hashes/", (req,res,next) => {
 
 })
 
-JsonRoutes.add("POST","/api/files/", (req,res,next) => {
+JsonRoutes.add("POST","/api/files/", async (req,res,next) => {
     if(typeof req.body.fileName === 'string' && !req.body.fileName.match(/[${}:"]/g) && typeof req.body.fileData === 'string'){
+        let newFileID = ""
         try {
-            Meteor.call('uploadHashData',req.body.fileName,`garbage,${req.body.fileData}`)
+            newFileID = await processUpload(req.body.fileName,`garbage,${req.body.fileData}`,true, "")
         } catch {
             JsonRoutes.sendResult(res, {
                 code: 500,
@@ -294,7 +338,7 @@ JsonRoutes.add("POST","/api/files/", (req,res,next) => {
         JsonRoutes.sendResult(res, {
             data:{
                 status:"success",
-                fileName:req.body.fileName
+                fileID:newFileID
             }
         })
 
@@ -510,4 +554,117 @@ JsonRoutes.add("GET","/api/jobs/:jobID/delete", (req,res,next) => {
             data:{message:"Invalid request submitted"}
         })
     }
+})
+
+JsonRoutes.add("POST","/api/crack/file/", async (req,res,next) => {
+    // first upload the file and get the file id
+    if(typeof req.body.fileName === 'string' && !req.body.fileName.match(/[${}:"]/g) && typeof req.body.fileData === 'string'){
+        let newFileID = ""
+        try {
+            newFileID = await processUpload(req.body.fileName,`garbage,${req.body.fileData}`,true, "")
+            APICollection.update({"secret":req.headers.apikey},{$set:{'status':`Hash File uploaded at ${new Date()}`}})
+            // Then get any cracked hashes for this file...
+            let hashesToRet = Hashes.find({"meta.source":newFileID,'meta.cracked':true},{fields:{'data':1,'meta.type':1,'meta.plaintext':1,'meta.cracked':1}}).fetch();
+            // Queue a crackjob for the newFileID if there are uncracked hashes for this file...
+            let hashFileDetails = HashFiles.findOne({"_id":newFileID})
+            let crackJobID = "No Job Submitted, All Hashes already Cracked"
+            if(hashFileDetails.crackCount < hashFileDetails.distinctCount){
+                // Have to submit crack job for this file...
+                // refresh spot pricing first....
+                refereshSpotPricing()
+                let promise = new Promise((res, rej) => {
+                    setTimeout(() => res("Now it's done!"), 3000)
+                });
+                await promise;
+                let pricing = AWSCOLLECTION.findOne({type:'pricing'})
+                let instanceType = "p3_2xl";
+                if(typeof req.body.instanceType === 'string' && !req.body.instanceType.match(/[${}:"]/g)){
+                    instanceType = req.body.instanceType
+                }
+                let crackJobData = {
+                    ids: [newFileID],
+                    duration: 1,
+                    instanceType: instanceType,
+                    availabilityZone: pricing.data[instanceType].az,
+                    rate: pricing.data[instanceType].cheapest,
+                    maskingOption:{
+                        redactionNone: true,
+                        redactionCharacter: false,
+                        redactionLength: false,
+                        redactionFull: false
+                    },
+                    useDictionaries:true,
+                    bruteLimit:"7"
+                }
+                // intelligent handling of masking option
+                if(typeof req.body.maskingOption === 'object'){
+                    if(typeof req.body.maskingOption.redactionNone === 'boolean'){
+                        if(req.body.maskingOption.redactionNone === true) {
+                            crackJobData.maskingOption.redactionNone = true
+                            crackJobData.maskingOption.redactionCharacter = false
+                            crackJobData.maskingOption.redactionLength = false
+                            crackJobData.maskingOption.redactionFull = false
+                        }
+                        if(req.body.maskingOption.redactionCharacter === true) {
+                            crackJobData.maskingOption.redactionNone = false
+                            crackJobData.maskingOption.redactionCharacter = true
+                            crackJobData.maskingOption.redactionLength = false
+                            crackJobData.maskingOption.redactionFull = false
+                        }
+                        if(req.body.maskingOption.redactionLength === true) {
+                            crackJobData.maskingOption.redactionNone = false
+                            crackJobData.maskingOption.redactionCharacter = false
+                            crackJobData.maskingOption.redactionLength = true
+                            crackJobData.maskingOption.redactionFull = false
+                        }
+                        if(req.body.maskingOption.redactionFull === true) {
+                            crackJobData.maskingOption.redactionNone = false
+                            crackJobData.maskingOption.redactionCharacter = false
+                            crackJobData.maskingOption.redactionLength = false
+                            crackJobData.maskingOption.redactionFull = true
+                        }
+                    }
+                }
+                // intelligent handling of useDictionaries
+                if(typeof req.body.useDictionaries === 'boolean'){
+                    crackJobData.useDictionaries = req.body.useDictionaries
+                }
+                // intelligent handling of bruteLimit
+                if(typeof req.body.bruteLimit === 'string'){
+                    let pInt = parseInt(req.body.bruteLimit,10)
+                    if(isNaN(pInt)){
+                        pInt = 0
+                    }
+                    crackJobData.bruteLimit = `${pInt}`
+                }
+                crackJobID = queueCrackJob(crackJobData)
+            }
+            JsonRoutes.sendResult(res, {
+                data:{
+                    status:"success",
+                    fileID:newFileID,
+                    crackedHashes: hashesToRet,
+                    crackJobID: crackJobID
+                }
+            })
+        } catch {
+            JsonRoutes.sendResult(res, {
+                code: 500,
+                data:"Error uploading provided hashes"
+            })
+        }
+
+    } else {
+        JsonRoutes.sendResult(res, {
+            code:400,
+            data:{
+                message:"Invalid hashes provide. Please provide in the following format",
+                sampleFormat:{
+                    "fileName": "Filename.txt (Required)",
+                    "fileData": "Base64 encoded filedata (Required)"
+                }
+            }
+        })
+    }
+
 })

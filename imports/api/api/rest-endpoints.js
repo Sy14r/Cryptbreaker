@@ -3,7 +3,7 @@ import { Roles } from 'meteor/alanning:roles';
 import { APICollection } from './api.js';
 import { AWSCOLLECTION } from '/imports/api/aws/aws.js';
 import { Hashes, HashFiles, HashCrackJobs, HashFileUploadJobs } from '/imports/api/hashes/hashes.js';
-import { queueCrackJob, pauseCrackJob, resumeCrackJob, deleteCrackJobs, processUpload } from '../hashes/methods.js';
+import { queueCrackJob, pauseCrackJob, resumeCrackJob, deleteCrackJobs, processUpload, deleteHashesFromID } from '../hashes/methods.js';
 import { refereshSpotPricing } from '../aws/methods.js';
 import _ from 'lodash';
 
@@ -72,6 +72,21 @@ JsonRoutes.add("GET","/api/files/:fileID", (req,res,next) => {
         APICollection.update({"secret":req.headers.apikey},{$set:{'status':`HashFile ${req.params.fileID} accessed at ${new Date()}`}})
         JsonRoutes.sendResult(res, {
             data:HashFiles.findOne({'_id':req.params.fileID})
+        })
+    } else {
+        JsonRoutes.sendResult(res, {
+            code:400,
+            data:{message:"Invalid request submitted"}
+        })
+    }
+})
+
+JsonRoutes.add("GET","/api/files/:fileID/delete", (req,res,next) => {
+    if(!req.params.fileID.match(/[${}:"]/g)){
+        APICollection.update({"secret":req.headers.apikey},{$set:{'status':`HashFile ${req.params.fileID} deleted at ${new Date()}`}})
+        let result = deleteHashesFromID(req.params.fileID);
+        JsonRoutes.sendResult(res, {
+            data:{message: `${result}`}
         })
     } else {
         JsonRoutes.sendResult(res, {

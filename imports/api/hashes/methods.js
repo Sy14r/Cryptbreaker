@@ -1440,7 +1440,7 @@ async function processGroupsUpload(fileName, fileData, hashFileID){
     return
 }
 
-function deleteHashesFromID(id){
+export function deleteHashesFromID(id){
     // First remove all hashes where this is the sole source...
     Hashes.remove({'meta.source':{$eq:[id]}})
     // Then need to remove references where there were double
@@ -1453,6 +1453,7 @@ function deleteHashesFromID(id){
     })
     // Then remove the files:
     HashFiles.remove({"_id":id})
+    return `Deleted Hashes for ${id}`;
 }
 
 export function queueCrackJob(data){

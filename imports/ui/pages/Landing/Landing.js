@@ -698,11 +698,14 @@ class Landing extends React.Component {
         let uncrackedHashes = Hashes.find({ $and: [{'meta.source':`${id}`},{'meta.cracked':{$not: true}}] },{'fields':{'data':1,'meta.type':1 }}).fetch()
         let dataToDownloadLM = ''
         let dataToDownloadNTLM = ''
+        let dataToDownloadNTLMv2 = ''
         _.forEach(uncrackedHashes,(hash) => {
           if(hash.meta.type === "LM"){
             dataToDownloadLM +=  `${hash.data}\r\n`
           } else if(hash.meta.type === "NTLM") {
             dataToDownloadNTLM +=  `${hash.data}\r\n`
+          } else if(hash.meta.type === "NTLMv2") {
+            dataToDownloadNTLMv2 +=  `:::${hash.data.trim()}\r\n`
           }
           
         })
@@ -722,6 +725,18 @@ class Landing extends React.Component {
           var element = document.createElement('a');
           element.setAttribute('href', 'data:text/plaintext;charset=utf-8,' + encodeURIComponent(dataToDownloadNTLM));
           element.setAttribute('download', `${id}-Uncracked.ntlm`);
+
+          element.style.display = 'none';
+          document.body.appendChild(element);
+
+          element.click();
+
+          document.body.removeChild(element);
+        }
+        if(dataToDownloadNTLMv2.length > 2) {
+          var element = document.createElement('a');
+          element.setAttribute('href', 'data:text/plaintext;charset=utf-8,' + encodeURIComponent(dataToDownloadNTLMv2));
+          element.setAttribute('download', `${id}-Uncracked.ntlmv2`);
 
           element.style.display = 'none';
           document.body.appendChild(element);

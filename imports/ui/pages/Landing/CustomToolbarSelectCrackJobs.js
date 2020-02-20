@@ -26,7 +26,7 @@ class CustomToolbarSelectCrackJobs extends React.Component {
     let ids = []
     let allGood = true
     _.each(this.props.selectedRows.data, (selection) => {
-        if(this.props.displayData[selection.index].data[1] === "Job Completed" || this.props.displayData[selection.index].data[1] === "Job Paused") {
+        if(this.props.displayData[selection.index].data[1] === "Job Completed" || this.props.displayData[selection.index].data[1] === "Job Paused" || this.props.displayData[selection.index].data[1].includes("Cancelled")|| this.props.displayData[selection.index].data[1].includes("Failed")) {
           ids.push(this.props.displayData[selection.index].data[0])
         } else {
           allGood = false

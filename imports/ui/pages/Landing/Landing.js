@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Roles } from 'meteor/alanning:roles';
 import PropTypes from 'prop-types';
 import { withTracker } from 'meteor/react-meteor-data';
@@ -102,7 +102,7 @@ class Landing extends React.Component {
       return
     }
     // let id = event.target.getAttribute('rowid') ? event.target.getAttribute('rowid') : (event._targetInst.pendingProps.rowid ? event._targetInst.pendingProps.rowid : event._targetInst.stateNode.ownerSVGElement.getAttribute('rowid'))
-    Meteor.call('pauseCrackJob',id, (err) =>   {
+    Meteor.call('pauseCrack',id, (err) =>   {
       if(typeof err !== 'undefined'){
         // If we had an error...
         Swal.fire({
@@ -698,11 +698,14 @@ class Landing extends React.Component {
         let uncrackedHashes = Hashes.find({ $and: [{'meta.source':`${id}`},{'meta.cracked':{$not: true}}] },{'fields':{'data':1,'meta.type':1 }}).fetch()
         let dataToDownloadLM = ''
         let dataToDownloadNTLM = ''
+        let dataToDownloadNTLMv2 = ''
         _.forEach(uncrackedHashes,(hash) => {
           if(hash.meta.type === "LM"){
             dataToDownloadLM +=  `${hash.data}\r\n`
           } else if(hash.meta.type === "NTLM") {
             dataToDownloadNTLM +=  `${hash.data}\r\n`
+          } else if(hash.meta.type === "NTLMv2") {
+            dataToDownloadNTLMv2 +=  `:::${hash.data.trim()}\r\n`
           }
           
         })
@@ -722,6 +725,18 @@ class Landing extends React.Component {
           var element = document.createElement('a');
           element.setAttribute('href', 'data:text/plaintext;charset=utf-8,' + encodeURIComponent(dataToDownloadNTLM));
           element.setAttribute('download', `${id}-Uncracked.ntlm`);
+
+          element.style.display = 'none';
+          document.body.appendChild(element);
+
+          element.click();
+
+          document.body.removeChild(element);
+        }
+        if(dataToDownloadNTLMv2.length > 2) {
+          var element = document.createElement('a');
+          element.setAttribute('href', 'data:text/plaintext;charset=utf-8,' + encodeURIComponent(dataToDownloadNTLMv2));
+          element.setAttribute('download', `${id}-Uncracked.ntlmv2`);
 
           element.style.display = 'none';
           document.body.appendChild(element);
@@ -892,6 +907,16 @@ class Landing extends React.Component {
           label:"Status",
           options:{
             filter:true,
+            customFilterListOptions: { render: v => `Status: ${v}`},
+            filterOptions: {
+              names: ['Job Completed/Paused', 'Job Processing'],
+              logic(status, filterVal) {
+                const show =
+                  (filterVal.indexOf('Job Completed/Paused') >= 0 && (status.includes("Completed")||status.includes("Paused"))) ||
+                  (filterVal.indexOf('Job Processing') >= 0 && !status.includes("Completed") && !status.includes("Paused"));
+                return !show;
+              },
+            }
           },
         },
         // {
@@ -921,9 +946,10 @@ class Landing extends React.Component {
           options:{
             filter:false,
           },
-        }        
+        }      
       ];
   
+
       let data = HashFiles.find().fetch();
       _.each(data,(item) => {
         item.uploadDate = item.uploadDate.toLocaleString().split(',')[0];
@@ -961,6 +987,7 @@ class Landing extends React.Component {
             item.status = "Upgrading and Installing Necessary Software"
           }
         }
+
         if(item.status.includes("remaining")) {
           item.actions = 
           <>
@@ -1062,7 +1089,7 @@ class Landing extends React.Component {
       
       const hcjOptions = {
         download:false,
-        filter:false,
+        filter:true,
         print:false,
         viewColumns:false,
         search:false,

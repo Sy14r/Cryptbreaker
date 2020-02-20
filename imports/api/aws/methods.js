@@ -11,52 +11,9 @@ import _ from 'lodash';
 
 const bound = Meteor.bindEnvironment((callback) => {callback();});
 
-Meteor.methods({
-    async storeAWSCreds(data) {
-        const AWS = require('aws-sdk');
-        AWS.config.credentials = new AWS.Credentials({accessKeyId:data.accessKeyId, secretAccessKey:data.secretAccessKey});
-        AWS.config.region = 'us-east-1';
-        //var creds = new AWS.Credentials({accessKeyId:doc.accessKeyId, secretAccessKey:doc.secretAccessKey});
-        const ec2 = new AWS.EC2();
-        var params = {
-            Filters: [
-            {
-            Name: "tag:Purpose", 
-            Values: [
-                "test"
-            ]
-            }
-            ]
-        };
-
-        await ec2.describeInstances(params).promise().then((err, data) =>{
-            bound(() =>{
-                if (err) {
-                    //return Promise.reject(err);
-                    console.log(err.message)
-                } 
-                else{
-                }
-            })
-        }).catch(err => {
-        //     console.log("+++")
-        //     console.log(err.message)
-        //     console.log("+++")
-            throw new Meteor.Error(err.statusCode,err.code,err.message)
-        });
-        AWSCOLLECTION.remove({type:'creds'});
-        AWSCOLLECTION.insert({type:'creds', accessKeyId:data.accessKeyId, secretAccessKey:data.secretAccessKey});   
-        let current = AWSCOLLECTION.find({type:'pricing'}).fetch()
-        if(current.length === 0){
-            AWSCOLLECTION.insert({type:'pricing'})
-        }
-        return true; 
-    },
-
-    async getSpotPricing() {
-        const AWS = require('aws-sdk');
-        let creds = AWSCOLLECTION.findOne({type:'creds'})
-        
+export async function refereshSpotPricing(){
+    const AWS = require('aws-sdk');
+        let creds = AWSCOLLECTION.findOne({type:'creds'}) 
         if(creds){
             // console.log(creds)
             AWS.config.credentials = new AWS.Credentials({accessKeyId:creds.accessKeyId, secretAccessKey:creds.secretAccessKey});
@@ -190,6 +147,8 @@ Meteor.methods({
                                     } else {
                                         AWSCOLLECTION.insert({type:'pricing',data:formattedResult});
                                     }
+                                    console.log("DONE")
+                                    return true
                                 }
                             }
                         })
@@ -210,6 +169,53 @@ Meteor.methods({
         } else {
             throw new Meteor.Error(401,'401 Unauthorized','In order to fetch spot pricing you must have AWS credentials configured')
         }
+}
+
+Meteor.methods({
+    async storeAWSCreds(data) {
+        const AWS = require('aws-sdk');
+        AWS.config.credentials = new AWS.Credentials({accessKeyId:data.accessKeyId, secretAccessKey:data.secretAccessKey});
+        AWS.config.region = 'us-east-1';
+        //var creds = new AWS.Credentials({accessKeyId:doc.accessKeyId, secretAccessKey:doc.secretAccessKey});
+        const ec2 = new AWS.EC2();
+        var params = {
+            Filters: [
+            {
+            Name: "tag:Purpose", 
+            Values: [
+                "test"
+            ]
+            }
+            ]
+        };
+
+        await ec2.describeInstances(params).promise().then((err, data) =>{
+            bound(() =>{
+                if (err) {
+                    //return Promise.reject(err);
+                    console.log(err.message)
+                } 
+                else{
+                }
+            })
+        }).catch(err => {
+        //     console.log("+++")
+        //     console.log(err.message)
+        //     console.log("+++")
+            throw new Meteor.Error(err.statusCode,err.code,err.message)
+        });
+        AWSCOLLECTION.remove({type:'creds'});
+        AWSCOLLECTION.insert({type:'creds', accessKeyId:data.accessKeyId, secretAccessKey:data.secretAccessKey});   
+        let current = AWSCOLLECTION.find({type:'pricing'}).fetch()
+        if(current.length === 0){
+            AWSCOLLECTION.insert({type:'pricing'})
+        }
+        return true; 
+    },
+
+    async getSpotPricing() {
+        refereshSpotPricing()
+        return true
     },
 
     configureAWSResources() {

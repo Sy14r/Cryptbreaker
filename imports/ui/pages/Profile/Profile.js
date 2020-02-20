@@ -6,25 +6,16 @@ import MUIDataTable from "mui-datatables";
 import { Roles } from 'meteor/alanning:roles';
 import Swal from 'sweetalert2'
 import { AWSCOLLECTION } from '/imports/api/aws/aws.js'
+import { APICollection } from '/imports/api/api/api.js'
 import Spinner from '/imports/ui/components/Spinner';
-
-
-
-// collection
-// import Counters from '../../../api/counters/counters';
-
-// remote example (if using ddp)
-/*
-import Remote from '../../../api/remote/ddp';
-import Users from '../../../api/remote/users';
-*/
-
-// components
-import Modal, { Button } from '../../components/Modal/Modal';
-import AddCountButton from '../../components/Button';
-import Text from '../../components/Text';
+import { Button } from '../../components/Modal/Modal';
+import Tooltip from "@material-ui/core/Tooltip";
+import DeleteForeverIcon from '@material-ui/icons/DeleteForever';
+import VisibilityIcon from '@material-ui/icons/Visibility';
 
 import './Profile.scss';
+import CustomAPIKeySelect from './CustomAPIKeySelect.js';
+import CustomAPIToolbar from './CustomAPIToolbar.js';
 
 
 class Profile extends React.Component {
@@ -50,7 +41,47 @@ class Profile extends React.Component {
     });
   }
 
-  
+  handleShowSecret = () => {
+    let id = ''
+    if(typeof event.target.getAttribute('rowid') === 'string'){
+      id = event.target.getAttribute('rowid')
+    } else if (event._targetInst){
+      if(typeof event._targetInst.pendingProps.rowid === 'string') {
+        id = event._targetInst.pendingProps.rowid
+      } else {
+        id = event._targetInst.stateNode.ownerSVGElement.getAttribute('rowid')
+      }
+    } else if (typeof event.target.ownerSVGElement.getAttribute('rowid') === 'string'){
+      id = event.target.ownerSVGElement.getAttribute('rowid')
+    } else {
+      console.log(event)
+      return
+    }
+    let key = APICollection.findOne({"_id":id})
+    Swal.fire(
+      `API Key`,
+      `${key.secret}`
+    )
+  }
+
+  handleDeleteKey = () => {
+    let id = ''
+    if(typeof event.target.getAttribute('rowid') === 'string'){
+      id = event.target.getAttribute('rowid')
+    } else if (event._targetInst){
+      if(typeof event._targetInst.pendingProps.rowid === 'string') {
+        id = event._targetInst.pendingProps.rowid
+      } else {
+        id = event._targetInst.stateNode.ownerSVGElement.getAttribute('rowid')
+      }
+    } else if (typeof event.target.ownerSVGElement.getAttribute('rowid') === 'string'){
+      id = event.target.ownerSVGElement.getAttribute('rowid')
+    } else {
+      console.log(event)
+      return
+    }
+    Meteor.call('delteAPIKeyByID',id)
+  }
 
   initialConfigurationWalkthrough() {
     function awsCredsPrompt() {
@@ -129,17 +160,8 @@ class Profile extends React.Component {
   render() {
     const {
       loggedIn,
-      // remote example (if using ddp)
-      // usersReady,
-      // users,
     } = this.props;
 
-    // eslint-disable-line
-    // remote example (if using ddp)
-    /*
-    console.log('usersReady', usersReady);
-    console.log('users', users);
-    */
     if (!loggedIn) {
       return null;
     }
@@ -182,7 +204,24 @@ class Profile extends React.Component {
       filter:false,
       print:false,
       viewColumns:false,
-      selectableRows:"none"
+      selectableRows:"none",
+      search:false
+    }
+    const apiKeyOptions = {
+      download:false,
+      filter:false,
+      print:false,
+      viewColumns:false,
+      selectableRows:"none",
+      search:false,
+      customToolbar: () => {
+        return (
+          <CustomAPIToolbar />
+        );
+      },
+      customToolbarSelect: (selectedRows, displayData, setSelectedRows) => (
+        <CustomAPIKeySelect selectedRows={selectedRows} displayData={displayData} setSelectedRows={setSelectedRows} />
+      ),
     }
     let data = [
       {
@@ -265,6 +304,34 @@ class Profile extends React.Component {
         }
       })
     }
+    let apiKeysColumns = [
+      {
+        name:"_id",
+        label:"Access Key ID"
+      },
+      {
+        name:"status",
+        label:"Status"
+      },
+      {
+        name:"actions",
+        label:"Actions"
+      }
+    ];
+    if(typeof this.props.apiKeys !== 'undefined'){
+      _.each(this.props.apiKeys, (apiKey) => {
+        apiKey.status = apiKey.status === 'Created' ? `Created ${apiKey.creationDate}` : apiKey.status;
+        apiKey.actions = 
+        <>
+          <Tooltip rowid={apiKey._id} title={"Show Secret"}>
+            <VisibilityIcon  rowid={apiKey._id} onClick={this.handleShowSecret} />
+          </Tooltip>
+          <Tooltip rowid={apiKey._id} title={"Delete Key"}>
+            <DeleteForeverIcon  rowid={apiKey._id} onClick={this.handleDeleteKey} />
+          </Tooltip>
+        </>
+      })
+    }
     const { subsReady } = this.props
     return (
       <div style={{marginTop:'2%'}} className="profile-page">
@@ -272,7 +339,6 @@ class Profile extends React.Component {
           subsReady ? (
             <>
             <h3>Profile</h3>
-            { this.props.awsSettings.length > 0 ? (<Button target="deleteAccount" onClick={this.deleteAccount} type="secondary" title="Delete Account" />) : (null)}
             {Roles.userIsInRole(Meteor.userId(), 'admin') ? (
               <>
               {this.props.awsSettings.length === 0 ? (
@@ -286,6 +352,13 @@ class Profile extends React.Component {
               {this.props.awsSettings.length > 0 ? (Swal.close()) : (null)}
               </>
               ) : (null)}
+              {typeof this.props.apiKeys.length !== 'undefined' ? (<MUIDataTable
+                className={"crackRatesTable"}
+                title={"API Keys"}
+                data={this.props.apiKeys}
+                columns={apiKeysColumns}
+                options={apiKeyOptions}
+              />) :(null) }
               {this.props.awsSettings.length > 0 ? (<MUIDataTable
                 className={"crackRatesTable"}
                 title={"Crack Rates"}
@@ -293,35 +366,17 @@ class Profile extends React.Component {
                 columns={columns}
                 options={options}
               />) :(null) }
+              { this.props.awsSettings.length > 0 ? (<><br></br><Button target="deleteAccount" onClick={this.deleteAccount} type="secondary" title="Delete Account" /></>) : (null)}
               </>
           ) : 
           (
             <Spinner />
           )
         }
-        
-        {/* <Button target="userId" type="primary" title="Click for User Info" /> */}
-        
-        {/* {countersReady && (
-          <Modal
-            target="userId"
-            title="User Info"
-            body={Meteor.userId()}
-            counter={counter}
-          />
-        )}
-        <hr />
-        {countersReady && <Text count={counter.count} />}
-        <AddCountButton /> */}
       </div>
     );
   }
 }
-
-Profile.defaultProps = {
-  // users: null, remote example (if using ddp)
-  counter: null,
-};
 
 Profile.propTypes = {
   loggedIn: PropTypes.bool.isRequired,
@@ -329,37 +384,24 @@ Profile.propTypes = {
     push: PropTypes.func.isRequired,
   }).isRequired,
   awsSettings: PropTypes.array.isRequired,
+  apiKeys: PropTypes.array.isRequired,
   subsReady: PropTypes.bool.isRequired,
-  // remote example (if using ddp)
-  // usersReady: PropTypes.bool.isRequired,
-  // users: Meteor.user() ? PropTypes.array.isRequired : () => null,
-  // countersReady: PropTypes.bool.isRequired,
-  // counter: PropTypes.shape({
-  //   _id: PropTypes.string,
-  //   count: PropTypes.number,
-  // }),
 };
 
 export default withTracker(() => {
-  // remote example (if using ddp)
-  /*
-  const usersSub = Remote.subscribe('users.friends'); // publication needs to be set on remote server
-  const users = Users.find().fetch();
-  const usersReady = usersSub.ready() && !!users;
-  */
-
   const awsPricingSub = Meteor.subscribe('aws.getPricing');
   const awsSettingsSub = Meteor.subscribe('aws.getSettings');
+  const apiKeysSub = Meteor.subscribe('api.getKeys');
   const awsPricing = AWSCOLLECTION.find({type:'pricing'}).fetch();  
   const awsSettings = AWSCOLLECTION.find({type:'settings'}).fetch();
-  const subsReady = awsPricingSub.ready() && awsSettingsSub.ready() && !!awsPricing && !!awsSettings;
+  const apiKeys = APICollection.find({}).fetch();
+  const subsReady = apiKeysSub.ready() && awsPricingSub.ready() && awsSettingsSub.ready() && !!awsPricing && !!awsSettings && !!apiKeys;
+
 
   return {
-    // remote example (if using ddp)
-    // usersReady,
-    // users,
     subsReady,
     awsPricing,
-    awsSettings
+    awsSettings,
+    apiKeys,
   };
 })(Profile);

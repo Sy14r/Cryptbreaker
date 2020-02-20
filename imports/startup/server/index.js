@@ -6,3 +6,4 @@ import './fixtures.js';
 import './register-api.js';
 import './methods.js';
 import './crons.js';
+import '../../api/api/rest-endpoints.js';

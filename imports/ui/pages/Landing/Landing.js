@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Roles } from 'meteor/alanning:roles';
 import PropTypes from 'prop-types';
 import { withTracker } from 'meteor/react-meteor-data';
@@ -907,6 +907,16 @@ class Landing extends React.Component {
           label:"Status",
           options:{
             filter:true,
+            customFilterListOptions: { render: v => `Status: ${v}`},
+            filterOptions: {
+              names: ['Job Completed/Paused', 'Job Processing'],
+              logic(status, filterVal) {
+                const show =
+                  (filterVal.indexOf('Job Completed/Paused') >= 0 && (status.includes("Completed")||status.includes("Paused"))) ||
+                  (filterVal.indexOf('Job Processing') >= 0 && !status.includes("Completed") && !status.includes("Paused"));
+                return !show;
+              },
+            }
           },
         },
         // {
@@ -936,9 +946,10 @@ class Landing extends React.Component {
           options:{
             filter:false,
           },
-        }        
+        }      
       ];
   
+
       let data = HashFiles.find().fetch();
       _.each(data,(item) => {
         item.uploadDate = item.uploadDate.toLocaleString().split(',')[0];
@@ -976,6 +987,7 @@ class Landing extends React.Component {
             item.status = "Upgrading and Installing Necessary Software"
           }
         }
+
         if(item.status.includes("remaining")) {
           item.actions = 
           <>
@@ -1077,7 +1089,7 @@ class Landing extends React.Component {
       
       const hcjOptions = {
         download:false,
-        filter:false,
+        filter:true,
         print:false,
         viewColumns:false,
         search:false,

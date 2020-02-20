@@ -2533,7 +2533,8 @@ sudo reboot`;
 
 export function pauseCrackJob(fileID){
     let theHCJ = HashCrackJobs.findOne({"_id":fileID})
-    if(theHCJ.requestedPause || theHCJ.status === "Job Completed" || theHCJ.status === "Job Paused"){
+    // updated for bug where even though the conditions were false it was still executing...
+    if((theHCJ.requestedPause || theHCJ.status === "Job Completed" || theHCJ.status === "Job Paused") === true){
         return `${fileID} - This job cannot be paused`
     }
     HashCrackJobs.update({"_id":fileID},{$set:{requestedPause:true}})
@@ -2584,7 +2585,7 @@ export function deleteCrackJobs(fileIDArray){
         });
         _.each(fileIDArray, (fileID) => {
             let theHCJ = HashCrackJobs.findOne({"uuid":fileID})
-            if(theHCJ.status === 'Job Completed' || theHCJ.status === 'Job Paused'){
+            if(theHCJ.status === 'Job Completed' || theHCJ.status === 'Job Paused' || theHCJ.status.includes("cancelled") || theHCJ.status.includes("Failed")){
                 deleteAllFilesWithPrefix(theHCJ.uuid, s3)
                 HashCrackJobs.remove({"uuid":fileID})
             }
@@ -2778,7 +2779,10 @@ Meteor.methods({
 
     async pauseCrack(fileID){
         if(Roles.userIsInRole(Meteor.userId(),['admin','jobs.pause'])){
-            pauseCrackJob(fileID)
+            let result = pauseCrackJob(fileID)
+            if(result.includes("cannot")){
+                throw new Meteor.Error(400,'400 Unable to service request','The requested job cannot be paused')
+            }
             return true
         }
         throw new Meteor.Error(401,'401 Unauthorized','Your account is not authorized to delete hashes/hash files')

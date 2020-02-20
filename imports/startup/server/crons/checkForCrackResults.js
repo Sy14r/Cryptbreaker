@@ -623,7 +623,7 @@ function processPotfile(filename, s3Obj, job, type){
                                     $count:"data"
                                     }
                                 ]).toArray();
-                                if(typeof stats[0].data !== 'undefined'){
+                                if(typeof stats[0] !== 'undefined' && typeof stats[0].data !== 'undefined'){
                                     let updateKey = `categoriesStats.${key}.count`
                                     HashFiles.update({"_id":`${source}`},{$set:{[updateKey]:stats[0].data}})
                                 }

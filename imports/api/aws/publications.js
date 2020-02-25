@@ -21,6 +21,20 @@ if (Meteor.isServer) {
     return this.ready();
   });
 
+  Meteor.publish('aws.getBestPricing', function() {
+    if (this.userId) {    
+      return AWSCOLLECTION.find({type:'bestPricing'});
+    }
+    return this.ready();
+  });
+
+  Meteor.publish('aws.getRegions', function() {
+    if (this.userId) {    
+      return AWSCOLLECTION.find({type:'regions'});
+    }
+    return this.ready();
+  });
+
   Meteor.publish('aws.getSettings', function() {
     if (Roles.userIsInRole(this.userId, ['admin','hashes.crack'])) {    
       return AWSCOLLECTION.find({type:'settings'});

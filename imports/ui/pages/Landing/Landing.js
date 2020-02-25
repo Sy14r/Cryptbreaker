@@ -435,9 +435,9 @@ class Landing extends React.Component {
               else if(key === 'p3_16xl'){
                   inputOptions.p3_16xl = `${key} - $${value.cheapest}/hr (${value.az})`
               } 
-              else if(key === 'p3dn_24xl'){
-                  inputOptions.p3dn_24xl = `${key} - $${value.cheapest}/hr (${value.az})`
-              } 
+              // else if(key === 'p3dn_24xl'){
+              //     inputOptions.p3dn_24xl = `${key} - $${value.cheapest}/hr (${value.az})`
+              // } 
             } 
             Swal.fire({
               title: 'Select an Instance Type',
@@ -457,9 +457,9 @@ class Landing extends React.Component {
                   else if(result.value === 'p3_16xl'){
                       rate = this.props.awsPricing[0].data.p3_16xl.cheapest
                   } 
-                  else if(result.value === 'p3dn_24xl'){
-                      rate = this.props.awsPricing[0].data.p3dn_24xl.cheapest
-                  } 
+                  // else if(result.value === 'p3dn_24xl'){
+                  //     rate = this.props.awsPricing[0].data.p3dn_24xl.cheapest
+                  // } 
                   instanceType = result.value;
                   // Here is the more detailed prompt for no redaction/class level/length
                   (async () => {
@@ -549,10 +549,10 @@ class Landing extends React.Component {
                                   location = this.props.awsPricing[0].data.p3_16xl.az
                                   rate = this.props.awsPricing[0].data.p3_16xl.cheapest
                               } 
-                              else if(instanceType === 'p3dn_24xl'){
-                                  location = this.props.awsPricing[0].data.p3dn_24xl.az
-                                  rate = this.props.awsPricing[0].data.p3dn_24xl.cheapest
-                              } 
+                              // else if(instanceType === 'p3dn_24xl'){
+                              //     location = this.props.awsPricing[0].data.p3dn_24xl.az
+                              //     rate = this.props.awsPricing[0].data.p3dn_24xl.cheapest
+                              // } 
               
                                 Meteor.call('crackHashes',{ids:ids,duration:duration,instanceType:instanceType, availabilityZone:location, rate:rate, maskingOption:formValues, useDictionaries:advancedOptions.dictionaries, bruteLimit:advancedOptions.bruteforce}, (err) =>   {
                                     if(typeof err !== 'undefined'){
@@ -609,10 +609,10 @@ class Landing extends React.Component {
                                 location = this.props.awsPricing[0].data.p3_16xl.az
                                 rate = this.props.awsPricing[0].data.p3_16xl.cheapest
                             } 
-                            else if(instanceType === 'p3dn_24xl'){
-                                location = this.props.awsPricing[0].data.p3dn_24xl.az
-                                rate = this.props.awsPricing[0].data.p3dn_24xl.cheapest
-                            } 
+                            // else if(instanceType === 'p3dn_24xl'){
+                            //     location = this.props.awsPricing[0].data.p3dn_24xl.az
+                            //     rate = this.props.awsPricing[0].data.p3dn_24xl.cheapest
+                            // } 
             
                               Meteor.call('crackHashes',{ids:ids,duration:duration,instanceType:instanceType, availabilityZone:location, rate:rate, maskingOption:formValues,useDictionaries:true, bruteLimit:"7"}, (err) =>   {
                                   if(typeof err !== 'undefined'){

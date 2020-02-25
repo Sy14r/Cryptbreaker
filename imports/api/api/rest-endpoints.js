@@ -4,7 +4,7 @@ import { APICollection } from './api.js';
 import { AWSCOLLECTION } from '/imports/api/aws/aws.js';
 import { Hashes, HashFiles, HashCrackJobs, HashFileUploadJobs } from '/imports/api/hashes/hashes.js';
 import { queueCrackJob, pauseCrackJob, resumeCrackJob, deleteCrackJobs, processUpload, deleteHashesFromID } from '../hashes/methods.js';
-import { refereshSpotPricing } from '../aws/methods.js';
+import { refereshSpotPricing, enableRegion, disableRegion } from '../aws/methods.js';
 import _ from 'lodash';
 
 
@@ -182,14 +182,67 @@ JsonRoutes.add("GET","/api/pricing", async (req,res,next) => {
         });
         await promise;
         let pricing = AWSCOLLECTION.findOne({type:'pricing'})
+        let bestPricing = AWSCOLLECTION.findOne({type:'bestPricing'})
         JsonRoutes.sendResult(res, {
-            data:pricing.data
+            data:{active:pricing.data,best:bestPricing.data}
         })
         }catch {
         JsonRoutes.sendResult(res, {
             code:400,
             data:{message:"Invalid request submitted"}
         })
+    }
+})
+
+JsonRoutes.add("GET","/api/regions", async (req,res,next) => {
+    try {
+        APICollection.update({"secret":req.headers.apikey},{$set:{'status':`Regions retrieved at ${new Date()}`}})
+        //pauseCrackJob(req.params.jobID)
+        let regions = AWSCOLLECTION.findOne({type:'regions'})
+        JsonRoutes.sendResult(res, {
+            data:regions.data
+        })
+        }catch {
+        JsonRoutes.sendResult(res, {
+            code:400,
+            data:{message:"Invalid request submitted"}
+        })
+    }
+})
+
+JsonRoutes.add("GET","/api/regions/:regionName/enable", async (req,res,next) => {
+    if(!req.params.regionName.match(/[${}:"]/g)){
+        try {
+            APICollection.update({"secret":req.headers.apikey},{$set:{'status':`Region ${req.params.regionName} enabled at ${new Date()}`}})
+            //pauseCrackJob(req.params.jobID)
+            enableRegion(req.params.regionName)
+            JsonRoutes.sendResult(res, {
+                data:{region:req.params.regionName,active:true}
+            })
+            }catch {
+            JsonRoutes.sendResult(res, {
+                code:400,
+                data:{message:"Invalid request submitted"}
+            })
+        }
+    }
+})
+
+JsonRoutes.add("GET","/api/regions/:regionName/disable", async (req,res,next) => {
+    if(!req.params.regionName.match(/[${}:"]/g)){
+        try {
+            APICollection.update({"secret":req.headers.apikey},{$set:{'status':`Region ${req.params.regionName} disabled at ${new Date()}`}})
+            //pauseCrackJob(req.params.jobID)
+            disableRegion(req.params.regionName)
+            JsonRoutes.sendResult(res, {
+                data:{region:req.params.regionName,active:false}
+            })
+            }catch {
+            JsonRoutes.sendResult(res, {
+                code:400,
+                data:{message:"Invalid request submitted"}
+            })
+        }
     }
 })
 

@@ -65,11 +65,33 @@ class Admin extends React.Component {
       },
       {
         name:"instancePrice",
-        label:"Price/Hour"
+        label:"Enabled Price/Hour"
       },
       {
         name:"instanceAZ",
-        label:"Location"
+        label:"Enabled Location"
+      },
+      {
+        name:"bestInstancePrice",
+        label:"Best Price/Hour"
+      },
+      {
+        name:"bestInstanceAZ",
+        label:"Best Location"
+      }
+    ]
+
+    const regionColumns = [
+      {
+        name:"name",
+        label:"Region"
+      },
+      {
+        name:"isEnabled",
+        label:"Status",
+        options:{
+          sortDirection:'desc'
+        }
       }
     ]
 
@@ -87,41 +109,70 @@ class Admin extends React.Component {
       
     });
 
-    let spotDataEntry = AWSCOLLECTION.find({type:'pricing'}).fetch()
+    let regionData = typeof this.props.awsRegions !== "undefined" ? this.props.awsRegions : []
+    let regionDataForTable = []
+    if(regionData.length > 0){
+      _.each(regionData[0].data, (region) => {
+        if(region.active){
+          region.isEnabled = "enabled"
+        } else {
+          region.isEnabled = "disabled"
+        }
+        regionDataForTable.push(region)
+      })
+    }
+
+    
+    // let spotDataEntry = AWSCOLLECTION.find({type:'pricing'}).fetch()
+    let spotDataEntry = this.props.awsPricing
+    let bestSpotDataEntry = this.props.awsBestPricing
     let spotData = []
     if(spotDataEntry.length > 0){
-      if(typeof spotDataEntry.data !== "undefined") {
-        if(spotDataEntry.length > 0){
-          spotData.push({
-            instanceType:"p3.2xlarge",
-            instancePrice:`$${spotDataEntry[0].data.p3_2xl.cheapest}`,
-            instanceAZ:spotDataEntry[0].data.p3_2xl.az,
-          })
-          spotData.push({
-            instanceType:"p3.8xlarge",
-            instancePrice:`$${spotDataEntry[0].data.p3_8xl.cheapest}`,
-            instanceAZ:spotDataEntry[0].data.p3_8xl.az,
-          })
-          spotData.push({
-            instanceType:"p3.16xlarge",
-            instancePrice:`$${spotDataEntry[0].data.p3_16xl.cheapest}`,
-            instanceAZ:spotDataEntry[0].data.p3_16xl.az,
-          })
-          spotData.push({
-            instanceType:"p3dn.24xlarge",
-            instancePrice:`$${spotDataEntry[0].data.p3dn_24xl.cheapest}`,
-            instanceAZ:spotDataEntry[0].data.p3dn_24xl.az,
-          })
+      if(bestSpotDataEntry.length > 0){
+        if(typeof spotDataEntry[0].data !== "undefined") {
+          if(typeof bestSpotDataEntry[0].data !== 'undefined'){
+            if(spotDataEntry.length > 0){
+              spotData.push({
+                instanceType:"p3.2xlarge",
+                instancePrice:`$${spotDataEntry[0].data.p3_2xl.cheapest}`,
+                instanceAZ:spotDataEntry[0].data.p3_2xl.az,
+                bestInstancePrice:`$${bestSpotDataEntry[0].data.p3_2xl.cheapest}`,
+                bestInstanceAZ:bestSpotDataEntry[0].data.p3_2xl.az,
+              })
+              spotData.push({
+                instanceType:"p3.8xlarge",
+                instancePrice:`$${spotDataEntry[0].data.p3_8xl.cheapest}`,
+                instanceAZ:spotDataEntry[0].data.p3_8xl.az,
+                bestInstancePrice:`$${bestSpotDataEntry[0].data.p3_8xl.cheapest}`,
+                bestInstanceAZ:bestSpotDataEntry[0].data.p3_8xl.az,
+              })
+              spotData.push({
+                instanceType:"p3.16xlarge",
+                instancePrice:`$${spotDataEntry[0].data.p3_16xl.cheapest}`,
+                instanceAZ:spotDataEntry[0].data.p3_16xl.az,
+                bestInstancePrice:`$${bestSpotDataEntry[0].data.p3_16xl.cheapest}`,
+                bestInstanceAZ:bestSpotDataEntry[0].data.p3_16xl.az,
+              })
+              // spotData.push({
+              //   instanceType:"p3dn.24xlarge",
+              //   instancePrice:`$${spotDataEntry[0].data.p3dn_24xl.cheapest}`,
+              //   instanceAZ:spotDataEntry[0].data.p3dn_24xl.az,
+              // })
+            }
+          }
         }
       }
-    }    
-    
+    }  
     const spotOptions = {
       download:false,
       filter:false,
       viewColumns:false,
       print:false,
-      selectableRows:"none"
+      selectableRows:"none",
+      onRowClick: (rowData, rowState) => {
+        Meteor.call('toggleRegionUse',rowData[0])
+      },
+      rowsPerPage:5
     }
 
   
@@ -474,7 +525,7 @@ class Admin extends React.Component {
           </button>
         </form>
       )};
-    
+
       return (
         <div className="admin-page">
           <MUIDataTable
@@ -522,6 +573,14 @@ class Admin extends React.Component {
           <MUIDataTable
             style={{minHeight:'300px'}}
             className={"spotPriceTable"}
+            title={"Region Overview"}
+            data={regionDataForTable}
+            columns={regionColumns}
+            options={spotOptions}
+          /> 
+          <MUIDataTable
+            style={{minHeight:'300px'}}
+            className={"spotPriceTable"}
             title={"Spot Pricing"}
             data={spotData}
             columns={spotColumns}
@@ -556,9 +615,15 @@ export default withTracker(() => {
   // sub and get aws creds
   const awsCredsSub = Meteor.subscribe('aws.getCreds');
   const awsPricingSub = Meteor.subscribe('aws.getPricing');
+  const awsBestPricingSub = Meteor.subscribe('aws.getBestPricing');
+  const awsRegionsSub = Meteor.subscribe('aws.getRegions');
+
   const awsPricing = AWSCOLLECTION.find({type:'pricing'}).fetch();
+  const awsBestPricing = AWSCOLLECTION.find({type:'bestPricing'}).fetch();
+  const awsRegions = AWSCOLLECTION.find({type:'regions'}).fetch();
+
   const awsCreds = AWSCOLLECTION.find({type:'creds'}).fetch();
-  const adminPageReady = pendingUsersSub.ready() && awsCredsSub.ready() && awsPricingSub.ready() && !!awsCreds &&  !!awsPricing && !!pendingUsers;
+  const adminPageReady = pendingUsersSub.ready() && awsCredsSub.ready() && awsPricingSub.ready() && awsBestPricingSub.ready() && awsRegionsSub.ready() && !!awsCreds &&  !!awsPricing &&  !!awsBestPricing &&  !!awsRegions && !!pendingUsers;
   return {
     // remote example (if using ddp)
     // usersReady,
@@ -567,5 +632,7 @@ export default withTracker(() => {
     pendingUsers,
     awsCreds,
     awsPricing,
+    awsBestPricing,
+    awsRegions,
   };
 })(Admin);

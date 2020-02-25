@@ -657,6 +657,9 @@ Meteor.methods({
                                                                         bound(() => {
                                                                             let inserted = AWSCOLLECTION.insert({'type':'settings','bucketName': bucketName,'iamPolicy': policyResult,'iamRole': roleResult,'instanceProfile':instanceProfileResult})
                                                                             if(inserted){
+                                                                                console.log("INSERTED")
+                                                                                refereshSpotPricing()
+                                                                                refereshSpotPricing()
                                                                                 return true
                                                                             } else {
                                                                                 throw new Meteor.Error(500,'Unable to save AWS setting','The server was unable to successfully insert the required AWS settings into the database')

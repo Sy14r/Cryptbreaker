@@ -1807,17 +1807,17 @@ while read line; do echo -n \\$(echo \\$line | cut -d':' -f1 | tr -d '\\n') >> N
     `
     // At this point we have NTLM-LM.potfile with hash:hit1,hit2,hit3:plaintest or hash::plaintext
     // Handle redaction for NTLM/LM
-    if(redactionValue.redactionCharacter){
+    if(redactionValue.redactionCharacter === true){
         userDataString += `
-        while read line; do echo -n \\$line | cut -d ':' -f1 | tr -d '\\n' >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo -n \\$line | cut -d':' -f2 >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo \\$line | cut -d':' -f3- | sed -e 's/\\[space\\]/ /g' -e 's/[A-Z]/U/g' -e's/[a-z]/l/g' -e 's/[0-9]/0/g' -e 's/[[:punct:]]/*/g'  >> ./NTLM-LM-FINAL.potfile;   done < ./NTLM-LM.potfile
+        while read line; do echo -n \\$line | cut -d ':' -f1 | tr -d '\\n' >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo -n \\$line | cut -d':' -f2 | tr -d '\\n' >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo \\$line | cut -d':' -f3- | sed -e 's/\\[space\\]/ /g' -e 's/[A-Z]/U/g' -e's/[a-z]/l/g' -e 's/[0-9]/0/g' -e 's/[[:punct:]]/*/g'  >> ./NTLM-LM-FINAL.potfile;   done < ./NTLM-LM.potfile
         `
-        } else if(redactionValue.redactionLength) {
+        } else if(redactionValue.redactionLength === true) {
         userDataString += `
-        while read line; do echo -n \\$line | cut -d ':' -f1 | tr -d '\\n' >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo -n \\$line | cut -d':' -f2 >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo \\$line | cut -d':' -f3- | sed -e 's/\\[space\\]/ /g' -e 's/[A-Z]/*/g' -e's/[a-z]/*/g' -e 's/[0-9]/*/g' -e 's/[[:punct:]]/*/g'  >> ./NTLM-LM-FINAL.potfile;  done < ./NTLM-LM.potfile
+        while read line; do echo -n \\$line | cut -d ':' -f1 | tr -d '\\n' >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo -n \\$line | cut -d':' -f2 | tr -d '\\n' >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo \\$line | cut -d':' -f3- | sed -e 's/\\[space\\]/ /g' -e 's/[A-Z]/*/g' -e's/[a-z]/*/g' -e 's/[0-9]/*/g' -e 's/[[:punct:]]/*/g'  >> ./NTLM-LM-FINAL.potfile;  done < ./NTLM-LM.potfile
         `
-        } else if(redactionValue.redactionFull){ 
+        } else if(redactionValue.redactionFull === true){ 
         userDataString += `
-        while read line; do echo -n \\$line | cut -d ':' -f1 | tr -d '\\n' >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo -n \\$line | cut -d':' -f2 >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo cracked >> ./NTLM-LM-FINAL.potfile;  done < ./NTLM-LM.potfile
+        while read line; do echo -n \\$line | cut -d ':' -f1 | tr -d '\\n' >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo -n \\$line | cut -d':' -f2  | tr -d '\\n' >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo cracked >> ./NTLM-LM-FINAL.potfile;  done < ./NTLM-LM.potfile
         `
         } else {
         userDataString +=`

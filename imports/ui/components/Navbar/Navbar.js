@@ -106,7 +106,7 @@ const LoggedInNav = () => {
   };
 
   const openDocs = () => {
-    window.open('https://www.opensecurity.io/blog/quick-password-cracks-and-audits')
+    window.open('https://cryptbreaker.io')
   }
   return(
   <>

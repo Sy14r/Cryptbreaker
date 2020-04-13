@@ -399,7 +399,7 @@ async function processNTDSZip(fileName, fileData, date){
 
                     //also look here for recovering histoy in the future...
                     async function waitExec() {
-                    const { stdout, stderr } = await exec(`secretsdump.py -system /tmp/${fileName}/registry/SYSTEM -ntds "/tmp/${fileName}/Active Directory/ntds.dit" LOCAL -outputfile /tmp/${fileName}/customer 2>&1 >/dev/null`);
+                    const { stdout, stderr } = await exec(`secretsdump.py -system "/tmp/${fileName}/registry/SYSTEM" -ntds "/tmp/${fileName}/Active Directory/ntds.dit" LOCAL -outputfile "/tmp/${fileName}/customer" 2>&1 >/dev/null`);
                         // console.log('stdout:', stdout);
                         // console.error('stderr:', stderr);
                         bound(() =>{HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:30}})})
@@ -407,7 +407,7 @@ async function processNTDSZip(fileName, fileData, date){
                         // we now have the /tmp/${fileName}/customer.ntds file in the format we want...                      
                         fs.readFile(`/tmp/${fileName}/customer.ntds`, 'utf8', function(err, contents) {
                             // console.log(contents);
-                            exec(`rm -rf /tmp/${fileName}`)
+                            exec(`rm -rf "/tmp/${fileName}"`)
                             bound(() =>{HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:45, description:"Adding Hashes to DB"}})})
                             processUpload(fileName, contents, false, hashFileID)
                             return true;

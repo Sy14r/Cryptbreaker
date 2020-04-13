@@ -1,6 +1,10 @@
+# Offical Documentation
+The [official documentation](https://cryptbreaker.io) is where you should look for help on getting started and use of the tool.
+
 ## ![Cryptbreaker Logo](CroppedCryptbreakerLogo.jpg)**Cryptbreaker** - A Cloud Based Password Cracking and Auditing Tool
 
 Upload files and use AWS Spot Instances to crack passwords. Using cloud capabilities you can even prevent plaintext credentials from leaving the isolated cracking box ensuring that you get usable statistics on passwords while minimizing plaintext credential exposure.
+
 
 ![](initial-walkthrough.gif)
 

@@ -667,7 +667,9 @@ function processPotfile(filename, s3Obj, job, type){
                         let crackedHashes = Hashes.find({$and:[{"meta.source":source},{'meta.cracked':true}]}).fetch()
                         if(crackedHashes.length > 0){
                             _.each(crackedHashes, (hash) => {
-                                
+                                let complexityReq = policyDoc.complexityRequirement < 5 ? policyDoc.complexityRequirement : 4
+                                let numOfEnabledRequirements = 0
+                                let numOfRequirementsMet = 0
                                 let textToEvaluate = hash.meta.plaintext
                                 if(textToEvaluate.includes('[space]')){
                                     textToEvaluate = textToEvaluate.replace(/\[space\]/g," ")
@@ -681,32 +683,41 @@ function processPotfile(filename, s3Obj, job, type){
                                     }
                                 }
                                 if(!wasInvalid && policyDoc.hasUpperRequirement  === true){
-                                    if((textToEvaluate.match(/[A-Z]/g) || []).length < policyDoc.upperRequirement)
+                                    if((textToEvaluate.match(/[A-Z]/g) || []).length >= policyDoc.upperRequirement)
                                     {
-                                        violations.push(hash._id)
-                                        wasInvalid = true
+                                        numOfRequirementsMet++
                                     }
+                                    numOfEnabledRequirements++
                                 }
                                 if(!wasInvalid && policyDoc.hasLowerRequirement === true){
-                                    if((textToEvaluate.match(/[a-z]/g) || []).length < policyDoc.lowerRequirement)
+                                    if((textToEvaluate.match(/[a-z]/g) || []).length >= policyDoc.lowerRequirement)
                                     {
-                                        violations.push(hash._id)
-                                        wasInvalid = true
+                                        numOfRequirementsMet++
                                     }
+                                    numOfEnabledRequirements++
                                 }
                                 if(!wasInvalid && policyDoc.hasSymbolsRequirement === true){
-                                    if((textToEvaluate.match(/[-!$%^&*()@_+|~=`{}\[\]:";'<>?,.\/\ ]/g) || []).length < policyDoc.symbolsRequirement)
+                                    if((textToEvaluate.match(/[-!$%^&*()@_+|~=`{}\[\]:";'<>?,.\/\ ]/g) || []).length >= policyDoc.symbolsRequirement)
                                     {
-                                        violations.push(hash._id)
-                                        wasInvalid = true
+                                        numOfRequirementsMet++
                                     }
+                                    numOfEnabledRequirements++
                                 }
                                 if(!wasInvalid && policyDoc.hasNumberRequirement === true){
-                                    if((textToEvaluate.match(/[0-9]/g) || []).length < policyDoc.numberRequirement)
+                                    if((textToEvaluate.match(/[0-9]/g) || []).length >= policyDoc.numberRequirement)
                                     {
-                                        violations.push(hash._id)
-                                        wasInvalid = true
+                                        numOfRequirementsMet++
                                     }
+                                    numOfEnabledRequirements++
+                                }
+                                // numOfRequirementsMet ==> how many of the enabled requirements we met
+                                // numOfEnableRequirements ==> how many requirements are enabled
+                                // complexityReq ==> number of requirements we're supposed to meet...
+                                complexityReq = complexityReq > numOfEnabledRequirements ? numOfEnabledRequirements : complexityReq
+            
+                                if(numOfRequirementsMet < complexityReq){
+                                    violations.push(hash._id)
+                                    wasInvalid = true
                                 }
                                 if(!wasInvalid && policyDoc.hasUsernameRequirement === true){
                                     _.each(hash.meta.username[hashFileID], (username) => {
@@ -733,7 +744,7 @@ function processPotfile(filename, s3Obj, job, type){
                                         }        
                                     })
                                 }
-
+            
                             })
                         }
                         HashFiles.update({"_id":source},{$set:{'policyViolations':violations}})

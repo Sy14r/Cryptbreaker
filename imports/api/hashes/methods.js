@@ -247,7 +247,9 @@ function updateHashesFromPotfile(fileName, fileData){
 
             if(crackedHashes.length > 0){
                 _.each(crackedHashes, (hash) => {
-                    
+                    let complexityReq = policyDoc.complexityRequirement < 5 ? policyDoc.complexityRequirement : 4
+                    let numOfEnabledRequirements = 0
+                    let numOfRequirementsMet = 0
                     let textToEvaluate = hash.meta.plaintext
                     if(textToEvaluate.includes('[space]')){
                         textToEvaluate = textToEvaluate.replace(/\[space\]/g," ")
@@ -261,32 +263,41 @@ function updateHashesFromPotfile(fileName, fileData){
                         }
                     }
                     if(!wasInvalid && policyDoc.hasUpperRequirement  === true){
-                        if((textToEvaluate.match(/[A-Z]/g) || []).length < policyDoc.upperRequirement)
+                        if((textToEvaluate.match(/[A-Z]/g) || []).length >= policyDoc.upperRequirement)
                         {
-                            violations.push(hash._id)
-                            wasInvalid = true
+                            numOfRequirementsMet++
                         }
+                        numOfEnabledRequirements++
                     }
                     if(!wasInvalid && policyDoc.hasLowerRequirement === true){
-                        if((textToEvaluate.match(/[a-z]/g) || []).length < policyDoc.lowerRequirement)
+                        if((textToEvaluate.match(/[a-z]/g) || []).length >= policyDoc.lowerRequirement)
                         {
-                            violations.push(hash._id)
-                            wasInvalid = true
+                            numOfRequirementsMet++
                         }
+                        numOfEnabledRequirements++
                     }
                     if(!wasInvalid && policyDoc.hasSymbolsRequirement === true){
-                        if((textToEvaluate.match(/[-!$%^&*()@_+|~=`{}\[\]:";'<>?,.\/\ ]/g) || []).length < policyDoc.symbolsRequirement)
+                        if((textToEvaluate.match(/[-!$%^&*()@_+|~=`{}\[\]:";'<>?,.\/\ ]/g) || []).length >= policyDoc.symbolsRequirement)
                         {
-                            violations.push(hash._id)
-                            wasInvalid = true
+                            numOfRequirementsMet++
                         }
+                        numOfEnabledRequirements++
                     }
                     if(!wasInvalid && policyDoc.hasNumberRequirement === true){
-                        if((textToEvaluate.match(/[0-9]/g) || []).length < policyDoc.numberRequirement)
+                        if((textToEvaluate.match(/[0-9]/g) || []).length >= policyDoc.numberRequirement)
                         {
-                            violations.push(hash._id)
-                            wasInvalid = true
+                            numOfRequirementsMet++
                         }
+                        numOfEnabledRequirements++
+                    }
+                    // numOfRequirementsMet ==> how many of the enabled requirements we met
+                    // numOfEnableRequirements ==> how many requirements are enabled
+                    // complexityReq ==> number of requirements we're supposed to meet...
+                    complexityReq = complexityReq > numOfEnabledRequirements ? numOfEnabledRequirements : complexityReq
+
+                    if(numOfRequirementsMet < complexityReq){
+                        violations.push(hash._id)
+                        wasInvalid = true
                     }
                     if(!wasInvalid && policyDoc.hasUsernameRequirement === true){
                         _.each(hash.meta.username[hashFileID], (username) => {
@@ -326,6 +337,20 @@ function updateHashesFromPotfile(fileName, fileData){
 async function processNTDSZip(fileName, fileData, date){
     
     const hashFileID = HashFiles.insert({name:`${fileName}`,uploadStatus:0,hashCount:0,crackCount:0,uploadDate:date})
+    Meteor.call('configurePasswordPolicy', hashFileID,  {                      
+        "complexityRequirement" : 3,      
+        "hasLengthRequirement" : true,
+        "lengthRequirement" : 8,
+        "hasUpperRequirement" : true,
+        "upperRequirement" : 2,
+        "hasLowerRequirement" : true,
+        "lowerRequirement" : 2,
+        "hasSymbolsRequirement" : true,
+        "symbolsRequirement" : 2,
+        "hasNumberRequirement" : true,
+        "numberRequirement" : 2,
+        "hasUsernameRequirement" : true
+    })
     const hashFileUploadJobID = HashFileUploadJobs.insert({name:fileName,uploadStatus:0,hashFileID:hashFileID,description:"Processing ZIP File"})
     let data = fileData.split(',')[1];
     let buff = new Buffer(data, 'base64');
@@ -443,6 +468,20 @@ async function processRawHashFile(fileName, fileData, date){
         // console.log(JSON.stringify(totalHashes))
         // return
         let hashFileID = HashFiles.insert({name:fileName,hashCount:0,crackCount:0,uploadDate:date})
+        Meteor.call('configurePasswordPolicy', hashFileID,  {                      
+            "complexityRequirement" : 3,      
+            "hasLengthRequirement" : true,
+            "lengthRequirement" : 8,
+            "hasUpperRequirement" : true,
+            "upperRequirement" : 2,
+            "hasLowerRequirement" : true,
+            "lowerRequirement" : 2,
+            "hasSymbolsRequirement" : true,
+            "symbolsRequirement" : 2,
+            "hasNumberRequirement" : true,
+            "numberRequirement" : 2,
+            "hasUsernameRequirement" : true
+        })
         let hashFileUploadJobID = HashFileUploadJobs.insert({name:fileName,uploadStatus:20,hashFileID:hashFileID,description:"Optimizing DB Load"})
         let hashDict = {};
         let counter = 0
@@ -2681,7 +2720,9 @@ Meteor.methods({
 
             if(crackedHashes.length > 0){
                 _.each(crackedHashes, (hash) => {
-                    
+                    let complexityReq = policyDoc.complexityRequirement < 5 ? policyDoc.complexityRequirement : 4
+                    let numOfEnabledRequirements = 0
+                    let numOfRequirementsMet = 0
                     let textToEvaluate = hash.meta.plaintext
                     if(textToEvaluate.includes('[space]')){
                         textToEvaluate = textToEvaluate.replace(/\[space\]/g," ")
@@ -2695,32 +2736,41 @@ Meteor.methods({
                         }
                     }
                     if(!wasInvalid && policyDoc.hasUpperRequirement  === true){
-                        if((textToEvaluate.match(/[A-Z]/g) || []).length < policyDoc.upperRequirement)
+                        if((textToEvaluate.match(/[A-Z]/g) || []).length >= policyDoc.upperRequirement)
                         {
-                            violations.push(hash._id)
-                            wasInvalid = true
+                            numOfRequirementsMet++
                         }
+                        numOfEnabledRequirements++
                     }
                     if(!wasInvalid && policyDoc.hasLowerRequirement === true){
-                        if((textToEvaluate.match(/[a-z]/g) || []).length < policyDoc.lowerRequirement)
+                        if((textToEvaluate.match(/[a-z]/g) || []).length >= policyDoc.lowerRequirement)
                         {
-                            violations.push(hash._id)
-                            wasInvalid = true
+                            numOfRequirementsMet++
                         }
+                        numOfEnabledRequirements++
                     }
                     if(!wasInvalid && policyDoc.hasSymbolsRequirement === true){
-                        if((textToEvaluate.match(/[-!$%^&*()@_+|~=`{}\[\]:";'<>?,.\/\ ]/g) || []).length < policyDoc.symbolsRequirement)
+                        if((textToEvaluate.match(/[-!$%^&*()@_+|~=`{}\[\]:";'<>?,.\/\ ]/g) || []).length >= policyDoc.symbolsRequirement)
                         {
-                            violations.push(hash._id)
-                            wasInvalid = true
+                            numOfRequirementsMet++
                         }
+                        numOfEnabledRequirements++
                     }
                     if(!wasInvalid && policyDoc.hasNumberRequirement === true){
-                        if((textToEvaluate.match(/[0-9]/g) || []).length < policyDoc.numberRequirement)
+                        if((textToEvaluate.match(/[0-9]/g) || []).length >= policyDoc.numberRequirement)
                         {
-                            violations.push(hash._id)
-                            wasInvalid = true
+                            numOfRequirementsMet++
                         }
+                        numOfEnabledRequirements++
+                    }
+                    // numOfRequirementsMet ==> how many of the enabled requirements we met
+                    // numOfEnableRequirements ==> how many requirements are enabled
+                    // complexityReq ==> number of requirements we're supposed to meet...
+                    complexityReq = complexityReq > numOfEnabledRequirements ? numOfEnabledRequirements : complexityReq
+
+                    if(numOfRequirementsMet < complexityReq){
+                        violations.push(hash._id)
+                        wasInvalid = true
                     }
                     if(!wasInvalid && policyDoc.hasUsernameRequirement === true){
                         _.each(hash.meta.username[hashFileID], (username) => {

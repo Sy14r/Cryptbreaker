@@ -296,7 +296,7 @@ class Landing extends React.Component {
 
   };
 
-  handleClickPolicy = () => {
+  handleClickPolicy = (currPolicy) => {
     let id = ''
     if(typeof event.target.getAttribute('rowid') === 'string'){
       id = event.target.getAttribute('rowid')
@@ -312,20 +312,32 @@ class Landing extends React.Component {
       console.log(event)
       return
     }
+    
+    // _.each(this.props.hashFiles,(hashFile) => {
+    //   if(hashFile._id === id){
+    //     currPolicy = hashFile.passwordPolicy
+    //   }
+    // })
+    //passwordPolicy
     // let id = event.target.getAttribute('rowid') ? event.target.getAttribute('rowid') : (event._targetInst.pendingProps.rowid ? event._targetInst.pendingProps.rowid : event._targetInst.stateNode.ownerSVGElement.getAttribute('rowid'))
     (async () => {
       const { value: advancedOptions } = await Swal.fire({
         title: 'Password Policy',
         html:
-          '<input type="checkbox" id="length_requirement" name="length_requirement" value="length_requirement" checked><p style="display:inline-block;">At least&nbsp</p><input size="1" type="text" pattern="[0-9]*" id="minimum_length" name="minimum_length" value="8"><p style="display:inline-block;">&nbspcharacters</p><br/>'+
-          '<input type="checkbox" id="uppercase_requirement" name="uppercase_requirement" value="uppercase_requirement" checked><p style="display:inline-block;">At least&nbsp</p><input size="1" type="text" pattern="[0-9]*" id="count_upper_required" name="count_upper_required" value="2"><p style="display:inline-block;">&nbspuppercase characters</p><br/>'+
-          '<input type="checkbox" id="lowercase_requirement" name="lowercase_requirement" value="lowercase_requirement" checked><p style="display:inline-block;">At least&nbsp</p><input size="1" type="text" pattern="[0-9]*" id="count_lower_required" name="count_lower_required" value="2"><p style="display:inline-block;">&nbsplowercase characters</p><br/>'+
-          '<input type="checkbox" id="symbols_requirement" name="symbols_requirement" value="symbols_requirement" checked><p style="display:inline-block;">At least&nbsp</p><input size="1" type="text" pattern="[0-9]*" id="count_symbols_required" name="count_symbols_required" value="2"><p style="display:inline-block;">&nbspspecial characters</p><br/>'+
-          '<input type="checkbox" id="numbers_requirement" name="numbers_requirement" value="numbers_requirement" checked><p style="display:inline-block;">At least&nbsp</p><input size="1" type="text" pattern="[0-9]*" id="count_numbers_required" name="count_numbers_required" value="2"><p style="display:inline-block;">&nbspnumerical characters</p><br/>'+
-          '<input type="checkbox" id="no_username_in_password" name="no_username_in_password" value="no_username_in_password" checked><p style="display:inline-block;">Check for username in password</p><br/>',
+          '<h1 style="font-size:1rem; margin-top:.25rem;">Length Requirements:</h1>'+
+          `<input type="checkbox" id="length_requirement" name="length_requirement" value="length_requirement" ${currPolicy.hasLengthRequirement === true ? "checked" : null}><p style="display:inline-block;">At least&nbsp</p><input size="1" type="text" pattern="[0-9]*" id="minimum_length" name="minimum_length" value="${currPolicy.lengthRequirement}"><p style="display:inline-block;">&nbspcharacters</p><br/>`+
+          '<h1 style="font-size:1rem; margin-top:.25rem;">Complexity Requirements:</h1>'+
+          `<p style="display:inline-block;">At least&nbsp</p><input size="1" type="text" pattern="[1,2,3,4]" id="count_complexity_required" name="count_complexity_required" value="${currPolicy.complexityRequirement}"><p style="display:inline-block;">&nbspof the following categories met</p><br/>`+
+          `<input type="checkbox" id="uppercase_requirement" name="uppercase_requirement" value="uppercase_requirement" ${currPolicy.hasUpperRequirement === true ? "checked" : null}><p style="display:inline-block;">At least&nbsp</p><input size="1" type="text" pattern="[0-9]*" id="count_upper_required" name="count_upper_required" value="${currPolicy.upperRequirement}"><p style="display:inline-block;">&nbspuppercase characters</p><br/>`+
+          `<input type="checkbox" id="lowercase_requirement" name="lowercase_requirement" value="lowercase_requirement" ${currPolicy.hasLowerRequirement === true ? "checked" : null}><p style="display:inline-block;">At least&nbsp</p><input size="1" type="text" pattern="[0-9]*" id="count_lower_required" name="count_lower_required" value="${currPolicy.lowerRequirement}"><p style="display:inline-block;">&nbsplowercase characters</p><br/>`+
+          `<input type="checkbox" id="symbols_requirement" name="symbols_requirement" value="symbols_requirement" ${currPolicy.hasSymbolsRequirement === true ? "checked" : null}><p style="display:inline-block;">At least&nbsp</p><input size="1" type="text" pattern="[0-9]*" id="count_symbols_required" name="count_symbols_required" value="${currPolicy.symbolsRequirement}"><p style="display:inline-block;">&nbspspecial characters</p><br/>`+
+          `<input type="checkbox" id="numbers_requirement" name="numbers_requirement" value="numbers_requirement" ${currPolicy.hasNumberRequirement === true ? "checked" : null}><p style="display:inline-block;">At least&nbsp</p><input size="1" type="text" pattern="[0-9]*" id="count_numbers_required" name="count_numbers_required" value="${currPolicy.numberRequirement}"><p style="display:inline-block;">&nbspnumerical characters</p><br/>`+
+          '<h1 style="font-size:1rem; margin-top:.25rem;">Additional Checks:</h1>'+
+          `<input type="checkbox" id="no_username_in_password" name="no_username_in_password" value="no_username_in_password" ${currPolicy.hasUsernameRequirement === true ? "checked" : null}><p style="display:inline-block;">Check for username in password</p><br/>`,
         focusConfirm: false,
         preConfirm: () => {
           return {
+            complexityRequirement:parseInt(document.getElementById('count_complexity_required').value,10),
             hasLengthRequirement:document.getElementById('length_requirement').checked,
             lengthRequirement:parseInt(document.getElementById('minimum_length').value,10),
             hasUpperRequirement:document.getElementById('uppercase_requirement').checked,
@@ -959,7 +971,7 @@ class Landing extends React.Component {
             <VPNKeyIcon  rowid={item._id} onClick={this.handleClickCrack} className="rotatedIcon" />
           </Tooltip>
           <Tooltip rowid={item._id} title={"Configure Password Policy"}>
-            <PolicyIcon  rowid={item._id} onClick={this.handleClickPolicy} />
+            <PolicyIcon  rowid={item._id} onClick={() => {this.handleClickPolicy(item.passwordPolicy)}} />
           </Tooltip>
           <Tooltip rowid={item._id} title={"Export Hash Data"} >
             <ImportExportIcon rowid={item._id} onClick={this.handleImportExport}/>

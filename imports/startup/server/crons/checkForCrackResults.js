@@ -660,6 +660,7 @@ function processPotfile(filename, s3Obj, job, type){
                         })
                     }
                     // Update password policy violations as necessary
+
                     let hashFile = HashFiles.findOne({"_id":source})
                     if(typeof hashFile.passwordPolicy !== 'undefined'){
                         let policyDoc = hashFile.passwordPolicy
@@ -667,7 +668,9 @@ function processPotfile(filename, s3Obj, job, type){
                         let crackedHashes = Hashes.find({$and:[{"meta.source":source},{'meta.cracked':true}]}).fetch()
                         if(crackedHashes.length > 0){
                             _.each(crackedHashes, (hash) => {
-                                
+                                let complexityReq = policyDoc.complexityRequirement < 5 ? policyDoc.complexityRequirement : 4
+                                let numOfEnabledRequirements = 0
+                                let numOfRequirementsMet = 0
                                 let textToEvaluate = hash.meta.plaintext
                                 if(textToEvaluate.includes('[space]')){
                                     textToEvaluate = textToEvaluate.replace(/\[space\]/g," ")
@@ -681,35 +684,44 @@ function processPotfile(filename, s3Obj, job, type){
                                     }
                                 }
                                 if(!wasInvalid && policyDoc.hasUpperRequirement  === true){
-                                    if((textToEvaluate.match(/[A-Z]/g) || []).length < policyDoc.upperRequirement)
+                                    if((textToEvaluate.match(/[A-Z]/g) || []).length >= policyDoc.upperRequirement)
                                     {
-                                        violations.push(hash._id)
-                                        wasInvalid = true
+                                        numOfRequirementsMet++
                                     }
+                                    numOfEnabledRequirements++
                                 }
                                 if(!wasInvalid && policyDoc.hasLowerRequirement === true){
-                                    if((textToEvaluate.match(/[a-z]/g) || []).length < policyDoc.lowerRequirement)
+                                    if((textToEvaluate.match(/[a-z]/g) || []).length >= policyDoc.lowerRequirement)
                                     {
-                                        violations.push(hash._id)
-                                        wasInvalid = true
+                                        numOfRequirementsMet++
                                     }
+                                    numOfEnabledRequirements++
                                 }
                                 if(!wasInvalid && policyDoc.hasSymbolsRequirement === true){
-                                    if((textToEvaluate.match(/[-!$%^&*()@_+|~=`{}\[\]:";'<>?,.\/\ ]/g) || []).length < policyDoc.symbolsRequirement)
+                                    if((textToEvaluate.match(/[-!$%^&*()@_+|~=`{}\[\]:";'<>?,.\/\ ]/g) || []).length >= policyDoc.symbolsRequirement)
                                     {
-                                        violations.push(hash._id)
-                                        wasInvalid = true
+                                        numOfRequirementsMet++
                                     }
+                                    numOfEnabledRequirements++
                                 }
                                 if(!wasInvalid && policyDoc.hasNumberRequirement === true){
-                                    if((textToEvaluate.match(/[0-9]/g) || []).length < policyDoc.numberRequirement)
+                                    if((textToEvaluate.match(/[0-9]/g) || []).length >= policyDoc.numberRequirement)
                                     {
-                                        violations.push(hash._id)
-                                        wasInvalid = true
+                                        numOfRequirementsMet++
                                     }
+                                    numOfEnabledRequirements++
+                                }
+                                // numOfRequirementsMet ==> how many of the enabled requirements we met
+                                // numOfEnableRequirements ==> how many requirements are enabled
+                                // complexityReq ==> number of requirements we're supposed to meet...
+                                complexityReq = complexityReq > numOfEnabledRequirements ? numOfEnabledRequirements : complexityReq
+            
+                                if(numOfRequirementsMet < complexityReq){
+                                    violations.push(hash._id)
+                                    wasInvalid = true
                                 }
                                 if(!wasInvalid && policyDoc.hasUsernameRequirement === true){
-                                    _.each(hash.meta.username[hashFileID], (username) => {
+                                    _.each(hash.meta.username[source], (username) => {
                                         if(!wasInvalid){
                                             let accountName = username
                                             let domainName = ""
@@ -733,10 +745,161 @@ function processPotfile(filename, s3Obj, job, type){
                                         }        
                                     })
                                 }
-
+            
                             })
                         }
                         HashFiles.update({"_id":source},{$set:{'policyViolations':violations}})
+                    }
+                    // HERENOW: Check if there are groups associated with the hash file and update that info as necessary...
+                    let theHashFile = hashFile
+                    let hashFileID = source
+                    if(theHashFile.groups){
+                        // FOR EACH GROUP WE NEED TO RECALCULATE (GROUPS is an object so we need to reference for each key and val pair as appropriate...)
+                        // we have the hashFile to update, need to check if this group is already defined....
+                        Object.keys(theHashFile.groups).forEach(function(groupKey) {
+                            // Calculate some stats for use...
+                            let lookupKey = `meta.username.${hashFileID}`
+                            let group = groupKey
+                            let usersInGroup = theHashFile.groups[groupKey].data
+                            let totalHashes = usersInGroup.length
+                            let crackedTotal = 0
+                            let crackedUsers = []
+                            let passReuseStats = []
+                            let crackedStatOverview = []
+                            // console.log(lookupKey)
+                            let hashesForUsers = Hashes.find({$and:[{[lookupKey]:{$in:usersInGroup}},{'data':{$not:/^31D6CFE0D16AE931B73C59D7E0C089C0$/}},{'data':{$not:/^AAD3B435B51404EEAAD3B435B51404EE$/}}]}).fetch()
+                            // console.log(hashesForUsers)
+                            if(hashesForUsers.length > 0){
+                            // console.log(hashesForUsers);
+                            _.each(hashesForUsers, (userHash) => {
+                                // console.log(userHash)
+                                let hashContent = userHash.data;
+                                if(typeof userHash.meta.cracked !== 'undefined' && userHash.meta.cracked) {
+                                    hashContent = userHash.meta.plaintext 
+                                }
+                                let filteredUsersLength = _.filter(userHash.meta.username[hashFileID], function(val){
+                                    return usersInGroup.includes(val);
+                                })
+                                // passReuseStats[userHash.data] = userHash.meta.username[hashFileID].length
+                                if(filteredUsersLength.length > 1){
+                                    passReuseStats.push({"_id":`${userHash._id}`,"hash":hashContent,"count": filteredUsersLength.length})
+                                }
+                                if(typeof userHash.meta.cracked !== 'undefined' && userHash.meta.cracked) {
+                                    crackedTotal += filteredUsersLength.length
+                                    _.each(filteredUsersLength, (crackedAccount) => {
+                                        crackedUsers.push(crackedAccount)
+                                        // console.log(crackedAccount)
+                                    })
+                                }                    
+                            })
+                            crackedStatOverview.push({
+                                "name":"Cracked",
+                                "label":"Cracked",
+                                "value":crackedTotal
+                            })
+                            crackedStatOverview.push({
+                                "name":"Uncracked",
+                                "label":"Uncracked",
+                                "value":totalHashes-crackedTotal
+                            })
+                            let $match = {$and:[{'meta.cracked':true},{'meta.source':`${theHashFile._id}`},{[lookupKey]:{$in:usersInGroup}},{'data':{$not:/^31D6CFE0D16AE931B73C59D7E0C089C0$/}},{'data':{$not:/^AAD3B435B51404EEAAD3B435B51404EE$/}}]};
+                            let $project = {"length":{$strLenCP:"$meta.plaintext"}}
+                            let $group = {_id:"$length",count:{$sum:1}}
+                            let $sort = {_id:1}
+                            try {
+                                (async () => {
+                                    const stats = await Hashes.rawCollection().aggregate([
+                                        { 
+                                        $match
+                                        },
+                                        {
+                                        $project, 
+                                        },
+                                        {
+                                        $group,
+                                        },
+                                        {
+                                        $sort
+                                        }
+                                    ]).toArray();
+                                    // console.log(stats);
+                                    //return orderedItems;
+                                    doc = { 
+                                        passReuseStats: passReuseStats,
+                                        crackedStatOverview: crackedStatOverview,
+                                        crackedUsers: crackedUsers,
+                                        passwordLengthStats:stats,
+                                        categoriesStats:categoriesStats,
+                                        breachListStats:breachListStats
+                                    }
+                                    let key = `groups.${group}.stats`
+                                    //doc[group] = usersInGroup
+                                    // console.log(doc)
+                                    HashFiles.update({"_id":hashFileID},{$set:{[key]:doc}})
+                                    // HashFiles.update({"_id":`${source}`},{$set:{'passwordLengthStats':stats}})
+                                })().then(() => {
+                                    // THEN UPDATE CATEGORIES SOURCE STATS
+                                    for (let [key, value] of Object.entries(categoriesStats)) {
+                                        bound(() =>{
+                                            let $match = {$and:[{'meta.cracked':true},{'meta.source':`${hashFileID}`},{'meta.listCategories':`${categoriesStats[key].label}`},{[lookupKey]:{$in:usersInGroup}},{'data':{$not:/^31D6CFE0D16AE931B73C59D7E0C089C0$/}},{'data':{$not:/^AAD3B435B51404EEAAD3B435B51404EE$/}}]};
+                                            try {
+                                            (async () => {
+                                                const stats = await Hashes.rawCollection().aggregate([
+                                                    { 
+                                                    $match
+                                                    },
+                                                    {
+                                                    $count:"data"
+                                                    }
+                                                ]).toArray();
+                                                if(typeof stats[0] !== 'undefined'){
+                                                    // console.log(`FOUND ${key} ${stats[0].data}`)
+                                                    let updateKey = `groups.${group}.stats.categoriesStats.${key}.count`
+                                                    HashFiles.update({"_id":`${hashFileID}`},{$set:{[updateKey]:stats[0].data}})
+                                                }
+                                                //console.log(stats[0].data);
+                                            })().then(() => {
+                                                for (let [key, value] of Object.entries(breachListStats)) {
+                                                    bound(() =>{
+                                                        let $match = {$and:[{'meta.cracked':true},{'meta.source':`${hashFileID}`},{'meta.breachesObserved':`${breachListStats[key].label}`},{[lookupKey]:{$in:usersInGroup}},{'data':{$not:/^31D6CFE0D16AE931B73C59D7E0C089C0$/}},{'data':{$not:/^AAD3B435B51404EEAAD3B435B51404EE$/}}]};
+                                                        try {
+                                                        (async () => {
+                                                            const stats = await Hashes.rawCollection().aggregate([
+                                                                { 
+                                                                $match
+                                                                },
+                                                                {
+                                                                $count:"data"
+                                                                }
+                                                            ]).toArray();
+                                                            if(typeof stats[0] !== 'undefined'){
+                                                                // console.log(`FOUND ${key} ${stats[0].data}`)
+                                                                let updateKey = `groups.${group}.stats.breachListStats.${key}.count`
+                                                                HashFiles.update({"_id":`${hashFileID}`},{$set:{[updateKey]:stats[0].data}})
+                                                            }
+                                                            //console.log(stats[0].data);
+                                                        })().then(() => {
+                                                            let updateKey = `groups.${group}.stats.complete`
+                                                            HashFiles.update({"_id":`${hashFileID}`},{$set:{[updateKey]:true}})
+                                                        });;
+                                                    } catch (err) {
+                                                        throw new Meteor.Error('E2345', err.message);
+                                                        }
+                                                    })
+                                                }
+                                            });
+                                        } catch (err) {
+                                            throw new Meteor.Error('E2345', err.message);
+                                            }
+                                        })
+                                    }
+                                });
+                            
+                            } catch (err) {
+                                throw new Meteor.Error('E1234', err.message);
+                            }
+                        }                        
+                        });
                     }
                 })
                 

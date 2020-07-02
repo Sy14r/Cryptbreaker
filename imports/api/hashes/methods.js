@@ -1356,7 +1356,7 @@ async function processGroupsUpload(fileName, fileData, hashFileID){
             let passReuseStats = []
             let crackedStatOverview = []
             // console.log(lookupKey)
-            let hashesForUsers = Hashes.find({$and:[{[lookupKey]:{$in:usersInGroup}},{'data':{$not:/^31D6CFE0D16AE931B73C59D7E0C089C0$/}},{'data':{$not:/^AAD3B435B51404EEAAD3B435B51404EE$/}}]).fetch()
+            let hashesForUsers = Hashes.find({$and:[{[lookupKey]:{$in:usersInGroup}},{'data':{$not:/^31D6CFE0D16AE931B73C59D7E0C089C0$/}},{'data':{$not:/^AAD3B435B51404EEAAD3B435B51404EE$/}}]}).fetch()
             // console.log(`Hashes for group ${hashesForUsers}`)
             if(hashesForUsers.length > 0){
             // console.log(hashesForUsers);

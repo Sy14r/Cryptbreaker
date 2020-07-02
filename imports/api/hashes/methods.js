@@ -1057,7 +1057,7 @@ async function processGroupsUpload(fileName, fileData, hashFileID){
                 let passReuseStats = []
                 let crackedStatOverview = []
                 // console.log(lookupKey)
-                let hashesForUsers = Hashes.find({[lookupKey]:{$in:usersInGroup}}).fetch()
+                let hashesForUsers = Hashes.find({$and:[{[lookupKey]:{$in:usersInGroup}},{'data':{$not:/^31D6CFE0D16AE931B73C59D7E0C089C0$/}},{'data':{$not:/^AAD3B435B51404EEAAD3B435B51404EE$/}}]}).fetch()
                 // console.log(hashesForUsers)
                 if(hashesForUsers.length > 0){
                 // console.log(hashesForUsers);
@@ -1092,7 +1092,7 @@ async function processGroupsUpload(fileName, fileData, hashFileID){
                     "label":"Uncracked",
                     "value":totalHashes-crackedTotal
                 })
-                let $match = {$and:[{'meta.cracked':true},{'meta.source':`${theHashFile._id}`},{[lookupKey]:{$in:usersInGroup}}]};
+                let $match = {$and:[{'meta.cracked':true},{'meta.source':`${theHashFile._id}`},{[lookupKey]:{$in:usersInGroup}},{'data':{$not:/^31D6CFE0D16AE931B73C59D7E0C089C0$/}},{'data':{$not:/^AAD3B435B51404EEAAD3B435B51404EE$/}}]};
             let $project = {"length":{$strLenCP:"$meta.plaintext"}}
             let $group = {_id:"$length",count:{$sum:1}}
             let $sort = {_id:1}
@@ -1133,7 +1133,7 @@ async function processGroupsUpload(fileName, fileData, hashFileID){
                     // THEN UPDATE CATEGORIES SOURCE STATS
                     for (let [key, value] of Object.entries(categoriesStats)) {
                         bound(() =>{
-                            let $match = {$and:[{'meta.cracked':true},{'meta.source':`${hashFileID}`},{'meta.listCategories':`${categoriesStats[key].label}`},{[lookupKey]:{$in:usersInGroup}}]};
+                            let $match = {$and:[{'meta.cracked':true},{'meta.source':`${hashFileID}`},{'meta.listCategories':`${categoriesStats[key].label}`},{[lookupKey]:{$in:usersInGroup}},{'data':{$not:/^31D6CFE0D16AE931B73C59D7E0C089C0$/}},{'data':{$not:/^AAD3B435B51404EEAAD3B435B51404EE$/}}]};
                             try {
                             (async () => {
                                 const stats = await Hashes.rawCollection().aggregate([
@@ -1153,7 +1153,7 @@ async function processGroupsUpload(fileName, fileData, hashFileID){
                             })().then(() => {
                                 for (let [key, value] of Object.entries(breachListStats)) {
                                     bound(() =>{
-                                        let $match = {$and:[{'meta.cracked':true},{'meta.source':`${hashFileID}`},{'meta.breachesObserved':`${breachListStats[key].label}`},{[lookupKey]:{$in:usersInGroup}}]};
+                                        let $match = {$and:[{'meta.cracked':true},{'meta.source':`${hashFileID}`},{'meta.breachesObserved':`${breachListStats[key].label}`},{[lookupKey]:{$in:usersInGroup}},{'data':{$not:/^31D6CFE0D16AE931B73C59D7E0C089C0$/}},{'data':{$not:/^AAD3B435B51404EEAAD3B435B51404EE$/}}]};
                                         try {
                                         (async () => {
                                             const stats = await Hashes.rawCollection().aggregate([
@@ -1207,7 +1207,7 @@ async function processGroupsUpload(fileName, fileData, hashFileID){
                 let passReuseStats = []
                 let crackedStatOverview = []
                 // console.log(lookupKey)
-                let hashesForUsers = Hashes.find({[lookupKey]:{$in:usersInGroup}}).fetch()
+                let hashesForUsers = Hashes.find({$and:[{[lookupKey]:{$in:usersInGroup}},{'data':{$not:/^31D6CFE0D16AE931B73C59D7E0C089C0$/}},{'data':{$not:/^AAD3B435B51404EEAAD3B435B51404EE$/}}]}).fetch()
                 // console.log(hashesForUsers)
                 if(hashesForUsers.length > 0){
                 // console.log(hashesForUsers);
@@ -1242,7 +1242,7 @@ async function processGroupsUpload(fileName, fileData, hashFileID){
                     "label":"Uncracked",
                     "value":totalHashes-crackedTotal
                 })
-                let $match = {$and:[{'meta.cracked':true},{'meta.source':`${theHashFile._id}`},{[lookupKey]:{$in:usersInGroup}}]};
+                let $match = {$and:[{'meta.cracked':true},{'meta.source':`${theHashFile._id}`},{[lookupKey]:{$in:usersInGroup}},{'data':{$not:/^31D6CFE0D16AE931B73C59D7E0C089C0$/}},{'data':{$not:/^AAD3B435B51404EEAAD3B435B51404EE$/}}]};
             let $project = {"length":{$strLenCP:"$meta.plaintext"}}
             let $group = {_id:"$length",count:{$sum:1}}
             let $sort = {_id:1}
@@ -1281,7 +1281,7 @@ async function processGroupsUpload(fileName, fileData, hashFileID){
                     // THEN UPDATE CATEGORIES SOURCE STATS
                     for (let [key, value] of Object.entries(categoriesStats)) {
                         bound(() =>{
-                            let $match = {$and:[{'meta.cracked':true},{'meta.source':`${hashFileID}`},{'meta.listCategories':`${categoriesStats[key].label}`},{[lookupKey]:{$in:usersInGroup}}]};
+                            let $match = {$and:[{'meta.cracked':true},{'meta.source':`${hashFileID}`},{'meta.listCategories':`${categoriesStats[key].label}`},{[lookupKey]:{$in:usersInGroup}},{'data':{$not:/^31D6CFE0D16AE931B73C59D7E0C089C0$/}},{'data':{$not:/^AAD3B435B51404EEAAD3B435B51404EE$/}}]};
                             try {
                             (async () => {
                                 const stats = await Hashes.rawCollection().aggregate([
@@ -1301,7 +1301,7 @@ async function processGroupsUpload(fileName, fileData, hashFileID){
                             })().then(() => {
                                 for (let [key, value] of Object.entries(breachListStats)) {
                                     bound(() =>{
-                                        let $match = {$and:[{'meta.cracked':true},{'meta.source':`${hashFileID}`},{'meta.breachesObserved':`${breachListStats[key].label}`},{[lookupKey]:{$in:usersInGroup}}]};
+                                        let $match = {$and:[{'meta.cracked':true},{'meta.source':`${hashFileID}`},{'meta.breachesObserved':`${breachListStats[key].label}`},{[lookupKey]:{$in:usersInGroup}},{'data':{$not:/^31D6CFE0D16AE931B73C59D7E0C089C0$/}},{'data':{$not:/^AAD3B435B51404EEAAD3B435B51404EE$/}}]};
                                         try {
                                         (async () => {
                                             const stats = await Hashes.rawCollection().aggregate([
@@ -1356,7 +1356,7 @@ async function processGroupsUpload(fileName, fileData, hashFileID){
             let passReuseStats = []
             let crackedStatOverview = []
             // console.log(lookupKey)
-            let hashesForUsers = Hashes.find({[lookupKey]:{$in:usersInGroup}}).fetch()
+            let hashesForUsers = Hashes.find({$and:[{[lookupKey]:{$in:usersInGroup}},{'data':{$not:/^31D6CFE0D16AE931B73C59D7E0C089C0$/}},{'data':{$not:/^AAD3B435B51404EEAAD3B435B51404EE$/}}]).fetch()
             // console.log(`Hashes for group ${hashesForUsers}`)
             if(hashesForUsers.length > 0){
             // console.log(hashesForUsers);
@@ -1391,7 +1391,7 @@ async function processGroupsUpload(fileName, fileData, hashFileID){
                 "label":"Uncracked",
                 "value":totalHashes-crackedTotal
             })
-            let $match = {$and:[{'meta.cracked':true},{'meta.source':`${theHashFile._id}`},{[lookupKey]:{$in:usersInGroup}}]};
+            let $match = {$and:[{'meta.cracked':true},{'meta.source':`${theHashFile._id}`},{[lookupKey]:{$in:usersInGroup}},{'data':{$not:/^31D6CFE0D16AE931B73C59D7E0C089C0$/}},{'data':{$not:/^AAD3B435B51404EEAAD3B435B51404EE$/}}]};
             let $project = {"length":{$strLenCP:"$meta.plaintext"}}
             let $group = {_id:"$length",count:{$sum:1}}
             let $sort = {_id:1}
@@ -1431,7 +1431,7 @@ async function processGroupsUpload(fileName, fileData, hashFileID){
                     // THEN UPDATE CATEGORIES SOURCE STATS
                     for (let [key, value] of Object.entries(categoriesStats)) {
                         bound(() =>{
-                            let $match = {$and:[{'meta.cracked':true},{'meta.source':`${hashFileID}`},{'meta.listCategories':`${categoriesStats[key].label}`},{[lookupKey]:{$in:usersInGroup}}]};
+                            let $match = {$and:[{'meta.cracked':true},{'meta.source':`${hashFileID}`},{'meta.listCategories':`${categoriesStats[key].label}`},{[lookupKey]:{$in:usersInGroup}},{'data':{$not:/^31D6CFE0D16AE931B73C59D7E0C089C0$/}},{'data':{$not:/^AAD3B435B51404EEAAD3B435B51404EE$/}}]};
                             try {
                             (async () => {
                                 const stats = await Hashes.rawCollection().aggregate([
@@ -1451,7 +1451,7 @@ async function processGroupsUpload(fileName, fileData, hashFileID){
                             })().then(() => {
                                 for (let [key, value] of Object.entries(breachListStats)) {
                                     bound(() =>{
-                                        let $match = {$and:[{'meta.cracked':true},{'meta.source':`${hashFileID}`},{'meta.breachesObserved':`${breachListStats[key].label}`},{[lookupKey]:{$in:usersInGroup}}]};
+                                        let $match = {$and:[{'meta.cracked':true},{'meta.source':`${hashFileID}`},{'meta.breachesObserved':`${breachListStats[key].label}`},{[lookupKey]:{$in:usersInGroup}},{'data':{$not:/^31D6CFE0D16AE931B73C59D7E0C089C0$/}},{'data':{$not:/^AAD3B435B51404EEAAD3B435B51404EE$/}}]};
                                         try {
                                         (async () => {
                                             const stats = await Hashes.rawCollection().aggregate([

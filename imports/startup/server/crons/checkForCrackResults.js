@@ -660,6 +660,7 @@ function processPotfile(filename, s3Obj, job, type){
                         })
                     }
                     // Update password policy violations as necessary
+
                     let hashFile = HashFiles.findOne({"_id":source})
                     if(typeof hashFile.passwordPolicy !== 'undefined'){
                         let policyDoc = hashFile.passwordPolicy
@@ -720,7 +721,7 @@ function processPotfile(filename, s3Obj, job, type){
                                     wasInvalid = true
                                 }
                                 if(!wasInvalid && policyDoc.hasUsernameRequirement === true){
-                                    _.each(hash.meta.username[hashFileID], (username) => {
+                                    _.each(hash.meta.username[source], (username) => {
                                         if(!wasInvalid){
                                             let accountName = username
                                             let domainName = ""
@@ -748,6 +749,157 @@ function processPotfile(filename, s3Obj, job, type){
                             })
                         }
                         HashFiles.update({"_id":source},{$set:{'policyViolations':violations}})
+                    }
+                    // HERENOW: Check if there are groups associated with the hash file and update that info as necessary...
+                    let theHashFile = hashFile
+                    let hashFileID = source
+                    if(theHashFile.groups){
+                        // FOR EACH GROUP WE NEED TO RECALCULATE (GROUPS is an object so we need to reference for each key and val pair as appropriate...)
+                        // we have the hashFile to update, need to check if this group is already defined....
+                        Object.keys(theHashFile.groups).forEach(function(groupKey) {
+                            // Calculate some stats for use...
+                            let lookupKey = `meta.username.${hashFileID}`
+                            let group = groupKey
+                            let usersInGroup = theHashFile.groups[groupKey].data
+                            let totalHashes = usersInGroup.length
+                            let crackedTotal = 0
+                            let crackedUsers = []
+                            let passReuseStats = []
+                            let crackedStatOverview = []
+                            // console.log(lookupKey)
+                            let hashesForUsers = Hashes.find({$and:[{[lookupKey]:{$in:usersInGroup}},{'data':{$not:/^31D6CFE0D16AE931B73C59D7E0C089C0$/}},{'data':{$not:/^AAD3B435B51404EEAAD3B435B51404EE$/}}]}).fetch()
+                            // console.log(hashesForUsers)
+                            if(hashesForUsers.length > 0){
+                            // console.log(hashesForUsers);
+                            _.each(hashesForUsers, (userHash) => {
+                                // console.log(userHash)
+                                let hashContent = userHash.data;
+                                if(typeof userHash.meta.cracked !== 'undefined' && userHash.meta.cracked) {
+                                    hashContent = userHash.meta.plaintext 
+                                }
+                                let filteredUsersLength = _.filter(userHash.meta.username[hashFileID], function(val){
+                                    return usersInGroup.includes(val);
+                                })
+                                // passReuseStats[userHash.data] = userHash.meta.username[hashFileID].length
+                                if(filteredUsersLength.length > 1){
+                                    passReuseStats.push({"_id":`${userHash._id}`,"hash":hashContent,"count": filteredUsersLength.length})
+                                }
+                                if(typeof userHash.meta.cracked !== 'undefined' && userHash.meta.cracked) {
+                                    crackedTotal += filteredUsersLength.length
+                                    _.each(filteredUsersLength, (crackedAccount) => {
+                                        crackedUsers.push(crackedAccount)
+                                        // console.log(crackedAccount)
+                                    })
+                                }                    
+                            })
+                            crackedStatOverview.push({
+                                "name":"Cracked",
+                                "label":"Cracked",
+                                "value":crackedTotal
+                            })
+                            crackedStatOverview.push({
+                                "name":"Uncracked",
+                                "label":"Uncracked",
+                                "value":totalHashes-crackedTotal
+                            })
+                            let $match = {$and:[{'meta.cracked':true},{'meta.source':`${theHashFile._id}`},{[lookupKey]:{$in:usersInGroup}},{'data':{$not:/^31D6CFE0D16AE931B73C59D7E0C089C0$/}},{'data':{$not:/^AAD3B435B51404EEAAD3B435B51404EE$/}}]};
+                            let $project = {"length":{$strLenCP:"$meta.plaintext"}}
+                            let $group = {_id:"$length",count:{$sum:1}}
+                            let $sort = {_id:1}
+                            try {
+                                (async () => {
+                                    const stats = await Hashes.rawCollection().aggregate([
+                                        { 
+                                        $match
+                                        },
+                                        {
+                                        $project, 
+                                        },
+                                        {
+                                        $group,
+                                        },
+                                        {
+                                        $sort
+                                        }
+                                    ]).toArray();
+                                    // console.log(stats);
+                                    //return orderedItems;
+                                    doc = { 
+                                        passReuseStats: passReuseStats,
+                                        crackedStatOverview: crackedStatOverview,
+                                        crackedUsers: crackedUsers,
+                                        passwordLengthStats:stats,
+                                        categoriesStats:categoriesStats,
+                                        breachListStats:breachListStats
+                                    }
+                                    let key = `groups.${group}.stats`
+                                    //doc[group] = usersInGroup
+                                    // console.log(doc)
+                                    HashFiles.update({"_id":hashFileID},{$set:{[key]:doc}})
+                                    // HashFiles.update({"_id":`${source}`},{$set:{'passwordLengthStats':stats}})
+                                })().then(() => {
+                                    // THEN UPDATE CATEGORIES SOURCE STATS
+                                    for (let [key, value] of Object.entries(categoriesStats)) {
+                                        bound(() =>{
+                                            let $match = {$and:[{'meta.cracked':true},{'meta.source':`${hashFileID}`},{'meta.listCategories':`${categoriesStats[key].label}`},{[lookupKey]:{$in:usersInGroup}},{'data':{$not:/^31D6CFE0D16AE931B73C59D7E0C089C0$/}},{'data':{$not:/^AAD3B435B51404EEAAD3B435B51404EE$/}}]};
+                                            try {
+                                            (async () => {
+                                                const stats = await Hashes.rawCollection().aggregate([
+                                                    { 
+                                                    $match
+                                                    },
+                                                    {
+                                                    $count:"data"
+                                                    }
+                                                ]).toArray();
+                                                if(typeof stats[0] !== 'undefined'){
+                                                    // console.log(`FOUND ${key} ${stats[0].data}`)
+                                                    let updateKey = `groups.${group}.stats.categoriesStats.${key}.count`
+                                                    HashFiles.update({"_id":`${hashFileID}`},{$set:{[updateKey]:stats[0].data}})
+                                                }
+                                                //console.log(stats[0].data);
+                                            })().then(() => {
+                                                for (let [key, value] of Object.entries(breachListStats)) {
+                                                    bound(() =>{
+                                                        let $match = {$and:[{'meta.cracked':true},{'meta.source':`${hashFileID}`},{'meta.breachesObserved':`${breachListStats[key].label}`},{[lookupKey]:{$in:usersInGroup}},{'data':{$not:/^31D6CFE0D16AE931B73C59D7E0C089C0$/}},{'data':{$not:/^AAD3B435B51404EEAAD3B435B51404EE$/}}]};
+                                                        try {
+                                                        (async () => {
+                                                            const stats = await Hashes.rawCollection().aggregate([
+                                                                { 
+                                                                $match
+                                                                },
+                                                                {
+                                                                $count:"data"
+                                                                }
+                                                            ]).toArray();
+                                                            if(typeof stats[0] !== 'undefined'){
+                                                                // console.log(`FOUND ${key} ${stats[0].data}`)
+                                                                let updateKey = `groups.${group}.stats.breachListStats.${key}.count`
+                                                                HashFiles.update({"_id":`${hashFileID}`},{$set:{[updateKey]:stats[0].data}})
+                                                            }
+                                                            //console.log(stats[0].data);
+                                                        })().then(() => {
+                                                            let updateKey = `groups.${group}.stats.complete`
+                                                            HashFiles.update({"_id":`${hashFileID}`},{$set:{[updateKey]:true}})
+                                                        });;
+                                                    } catch (err) {
+                                                        throw new Meteor.Error('E2345', err.message);
+                                                        }
+                                                    })
+                                                }
+                                            });
+                                        } catch (err) {
+                                            throw new Meteor.Error('E2345', err.message);
+                                            }
+                                        })
+                                    }
+                                });
+                            
+                            } catch (err) {
+                                throw new Meteor.Error('E1234', err.message);
+                            }
+                        }                        
+                        });
                     }
                 })
                 

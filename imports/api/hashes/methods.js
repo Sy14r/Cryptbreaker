@@ -1592,6 +1592,8 @@ export function queueCrackJob(data){
             let userDataString = `#!/bin/bash
 sudo systemctl stop sshd.service
 sudo systemctl disable sshd.service
+echo "Upgrading and Installing Necessary Software" > ./status.txt
+aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
 sudo DEBIAN_FRONTEND=noninteractive apt-get -yq update
 sudo DEBIAN_FRONTEND=noninteractive apt-get -yq install build-essential linux-headers-$(uname -r) unzip p7zip-full linux-image-extra-virtual 
 sudo DEBIAN_FRONTEND=noninteractive apt-get -yq install python3-pip
@@ -1624,16 +1626,29 @@ aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
 wget https://hashcat.net/files/hashcat-5.1.0.7z
 7za x hashcat-5.1.0.7z
 
+echo "Installing HashWrap" > status.txt
+aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
+
 git clone https://github.com/Sy14r/HashWrap.git
 chmod +x /home/ubuntu/HashWrap/hashwrap
+
+echo "Downloading Default Rulesets" > status.txt
+aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
 
 git clone https://github.com/praetorian-code/Hob0Rules.git
 cd /home/ubuntu/Hob0Rules/wordlists
 gunzip *.gz
 crontab -r
 
+echo "Downloading Default Wordlists" > status.txt
+aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
+
 cd /home/ubuntu
 git clone https://github.com/danielmiessler/SecLists.git
+
+echo "Creating Master Wordlist" > status.txt
+aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
+
 cd /home/ubuntu/SecLists/Passwords
 rm -f ./Leaked-Databases/rockyou* 
 rm -f ./*/*withcount*
@@ -1825,12 +1840,11 @@ aws s3 cp /home/ubuntu/${randomVal}.LM.credentials s3://${awsSettings.bucketName
 aws s3 cp /home/ubuntu/COMBINED-PASS.txt s3://${awsSettings.bucketName}/${randomVal}.COMBINED-PASS.txt
 aws s3 cp /home/ubuntu/Hob0Rules/d3adhob0.rule s3://${awsSettings.bucketName}/${randomVal}.d3adhob0.rule
 echo "Exfiling Cracked Hashes prior to pause" > ./status.txt
-else
-echo "Finishing Up..." > ./status.txt
 fi
 # upload files after cracking
 if [ -f ./hashcat-5.1.0/hashcat.potfile ]
 then
+echo "Processing Recovered Passwords" > ./status.txt
 aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
 `
 // below while loop works for NonNTLMv2hashes... will see what we get for NTLMv2 Hashes... likely need to change.
@@ -1937,6 +1951,9 @@ chmod +x /home/ubuntu/driver-and-hashcat-install.sh
 chown ubuntu:ununtu /home/ubuntu/driver-and-hashcat-install.sh
 
 echo "@reboot ( sleep 15; su -c \"/home/ubuntu/driver-and-hashcat-install.sh\" -s /bin/bash ubuntu )" | crontab -
+echo "Rebooting Instance for Nvidia Drivers" > ./status.txt
+aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
+
 sudo reboot`;
 
             let buff = new Buffer(userDataString);
@@ -2126,8 +2143,14 @@ aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
 wget https://hashcat.net/files/hashcat-5.1.0.7z
 7za x hashcat-5.1.0.7z
 
+echo "Installing HashWrap" > status.txt
+aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
+
 git clone https://github.com/Sy14r/HashWrap.git
 chmod +x /home/ubuntu/HashWrap/hashwrap
+
+echo "Downloading Default Wordlists" > status.txt
+aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
 
 cd /home/ubuntu
 git clone https://github.com/danielmiessler/SecLists.git
@@ -2142,6 +2165,9 @@ mv /tmp/SCRABBLE/Merriam-Webster-SCRABBLE-4thEdition.txt /home/ubuntu/SecLists/P
 cd /home/ubuntu/SecLists/Passwords
 cp /home/ubuntu/Hob0Rules/wordlists/rockyou.txt ./Leaked-Databases/rockyou.txt 
 cp /home/ubuntu/Hob0Rules/wordlists/english.txt ./english.txt 
+
+echo "Restoring Data" > status.txt
+aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
 
 aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.COMBINED-PASS.txt /home/ubuntu/COMBINED-PASS.txt
 aws s3 rm s3://${awsSettings.bucketName}/${randomVal}.COMBINED-PASS.txt 
@@ -2349,12 +2375,11 @@ aws s3 cp /home/ubuntu/${randomVal}.NTLMv2.credentials s3://${awsSettings.bucket
 aws s3 cp /home/ubuntu/COMBINED-PASS.txt s3://${awsSettings.bucketName}/${randomVal}.COMBINED-PASS.txt
 aws s3 cp /home/ubuntu/Hob0Rules/d3adhob0.rule s3://${awsSettings.bucketName}/${randomVal}.d3adhob0.rule
 echo "Exfiling Cracked Hashes prior to pause" > ./status.txt
-else
-echo "Finishing Up..." > ./status.txt
 fi
 # upload files after cracking
 if [ -f ./hashcat-5.1.0/hashcat.potfile ]
 then
+echo "Processing Recovered Passwords" > ./status.txt
 aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
 `
 if(theHCJ.types.includes("NTLM") || theHCJ.types.includes("LM")){
@@ -2458,6 +2483,10 @@ chmod +x /home/ubuntu/driver-and-hashcat-install.sh
 chown ubuntu:ununtu /home/ubuntu/driver-and-hashcat-install.sh
 
 echo "@reboot ( sleep 15; su -c \"/home/ubuntu/driver-and-hashcat-install.sh\" -s /bin/bash ubuntu )" | crontab -
+
+echo "Rebooting Instance for Nvidia Drivers" > ./status.txt
+aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
+
 sudo reboot`;
 
             let buff = new Buffer(userDataString);
@@ -2650,14 +2679,17 @@ export function tagInstance(jobID){
                 job.spotInstanceRequest.InstanceId
            ], 
            Tags: [
-           {
-           Key: "Cryptbreaker", 
-           Value: "Cryptbreaker"
-           }
+            {
+                Key: "Cryptbreaker", 
+                Value: "Cryptbreaker"
+            }
            ]
            };
            ec2.createTags(params, function(err, data) {
-             if (err) console.log(`${err.statusCode},${err.code},${err.message}`); // an error occurred
+             if (err) {
+                 console.log(`${err.statusCode},${err.code},${err.message}`); // an error occurred
+                console.log(`Error tagging ${job.spotInstanceRequest.InstanceId}`)
+                }
              else {
                 bound(() => { HashCrackJobs.update({"_id":job._id},{$set:{'isTagged':true}})})
              }    

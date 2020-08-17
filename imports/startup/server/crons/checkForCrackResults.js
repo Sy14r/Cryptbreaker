@@ -957,6 +957,11 @@ function updateJobFromStatus(filename, s3Obj, job){
                     content = `${hashType} ${crackType} (${crackStatus}) - ${timeEstimatedRemaining} remaining`
                     //console.log(content)
                 } 
+                else if(content.includes("Dictionary cache building")){
+                    content = 'Building Hashcat Dictionary'
+                } else if(content.includes('starting') && content.includes('Stopped')){
+
+                }
                 // else {
                     //console.log("NOT SESSION DATA")
                 // }
@@ -965,7 +970,7 @@ function updateJobFromStatus(filename, s3Obj, job){
                     if(!update){
                         throw new Meteor.Error(500,"500 Internal Server Error","Unable to update status of job in updateJobFromStatus function")
                     }  
-                } else {
+                } else if(content.length > 0 && !((content.includes('starting') && content.includes('Stopped')))) {
                     let update = HashCrackJobs.update({"_id":job._id},{$set:{'status':`${content}`}})
                     if(!update){
                         throw new Meteor.Error(500,"500 Internal Server Error","Unable to update status of job in updateJobFromStatus function")
@@ -991,114 +996,122 @@ function checkForCrackResults() {
         let awsSettings = AWSCOLLECTION.findOne({'type':'settings'})
 
         // For each of the submittedNotComplete check to see if the potfile exists for the correcponding UUID
-        let submittedNotComplete = HashCrackJobs.find({$and:[{'status':{$not:/^Job Complete/}},{'status':{$not:/^Job Failed/}},{'status':{$not:/^Job Pause/}}]}).fetch()
+        let submittedNotComplete = HashCrackJobs.find({$and:[{'status':{$not:/^Job Complete/}},{'status':{$not:/^Job Failed/}},{'status':{$not:/^Job Pause/}},{'status':{$not:/^cancelled/}}]}).fetch()
         let params = {}
         _.each(submittedNotComplete, (job) => {
             // First check if the last spotRequest status was 
-            if(job.spotInstanceRequest.Status.Code === "pending-evaluation"){
-                // console.log("Need to check spot status")
-                // need to get current spot request status...
-                var params = {
-                    SpotInstanceRequestIds: [
-                       job.spotInstanceRequest.SpotInstanceRequestId
-                    ]
-                };
-                AWS.config.update({region: job.availabilityZone.replace(/[a-z]$/g, '')});
-                let ec2 = new AWS.EC2()
-                ec2.describeSpotInstanceRequests(params, function(err, data) {
-                    bound(() => {
-                        if (err) console.log(err, err.stack); // an error occurred
-                        else  {
-                            let update = HashCrackJobs.update({"_id":job._id},{$set:{'spotInstanceRequest':data.SpotInstanceRequests[0]}})
-                            //console.log(data);           // successful response
-                        }  
+            if(typeof job.spotInstanceRequest !== 'undefined')
+            {
+                // we do all our normal checks since the spotInstanceRequest has a reported status
+                if(job.spotInstanceRequest.Status.Code === "pending-evaluation"){
+                    // console.log("Need to check spot status")
+                    // need to get current spot request status...
+                    var params = {
+                        SpotInstanceRequestIds: [
+                           job.spotInstanceRequest.SpotInstanceRequestId
+                        ]
+                    };
+                    AWS.config.update({region: job.availabilityZone.replace(/[a-z]$/g, '')});
+                    let ec2 = new AWS.EC2()
+                    ec2.describeSpotInstanceRequests(params, function(err, data) {
+                        bound(() => {
+                            if (err) console.log(err, err.stack); // an error occurred
+                            else  {
+                                let update = HashCrackJobs.update({"_id":job._id},{$set:{'spotInstanceRequest':data.SpotInstanceRequests[0]}})
+                                //console.log(data);           // successful response
+                            }  
+                        })
                     })
-                })
-            } else if(job.spotInstanceRequest.Status.Code === "capacity-not-available" && job.status !== "cancelled"){
-                // Want to update that capacity was unavailable for the particular region in our AWSSTORAGE and filter that out on the next request intelligently...
-                let alreadyNoted = AWSCOLLECTION.find({'type':'availabilityNote','data':job.availabilityZone}).fetch()
-                if(alreadyNoted.length > 0){
-                    AWSCOLLECTION.update({'type':'availabilityNote','data':{az:job.availabilityZone,type:job.instanceType}},{$set:{'date':new Date()}})
-                } else {
-                    AWSCOLLECTION.insert({'type':'availabilityNote','data':{az:job.availabilityZone,type:job.instanceType},'date':new Date()})
-                }
-                // console.log("Need to check spot status")
-                // need to get current spot request status...
-                var params = {
-                    SpotInstanceRequestIds: [
-                       job.spotInstanceRequest.SpotInstanceRequestId
-                    ]
-                };
-                AWS.config.update({region: job.availabilityZone.replace(/[a-z]$/g, '')});
-                let ec2 = new AWS.EC2()
-                ec2.cancelSpotInstanceRequests(params, function(err, data) {
-                    bound(() => {
-                        if (err) console.log(err, err.stack); // an error occurred
-                        else  {
-                            console.log(data)
-                            deleteAllFilesWithPrefix(job.uuid, s3)
-                            let update = HashCrackJobs.update({"_id":job._id},{$set:{'status':data.CancelledSpotInstanceRequests[0].State}})
-                            //console.log(data);           // successful response
-                        }  
+                } else if(job.spotInstanceRequest.Status.Code === "capacity-not-available" && job.status !== "cancelled"){
+                    // Want to update that capacity was unavailable for the particular region in our AWSSTORAGE and filter that out on the next request intelligently...
+                    let alreadyNoted = AWSCOLLECTION.find({'type':'availabilityNote','data':job.availabilityZone}).fetch()
+                    if(alreadyNoted.length > 0){
+                        AWSCOLLECTION.update({'type':'availabilityNote','data':{az:job.availabilityZone,type:job.instanceType}},{$set:{'date':new Date()}})
+                    } else {
+                        AWSCOLLECTION.insert({'type':'availabilityNote','data':{az:job.availabilityZone,type:job.instanceType},'date':new Date()})
+                    }
+                    // console.log("Need to check spot status")
+                    // need to get current spot request status...
+                    var params = {
+                        SpotInstanceRequestIds: [
+                           job.spotInstanceRequest.SpotInstanceRequestId
+                        ]
+                    };
+                    AWS.config.update({region: job.availabilityZone.replace(/[a-z]$/g, '')});
+                    let ec2 = new AWS.EC2()
+                    ec2.cancelSpotInstanceRequests(params, function(err, data) {
+                        bound(() => {
+                            if (err) console.log(err, err.stack); // an error occurred
+                            else  {
+                                console.log(data)
+                                deleteAllFilesWithPrefix(job.uuid, s3)
+                                let update = HashCrackJobs.update({"_id":job._id},{$set:{'status':data.CancelledSpotInstanceRequests[0].State}})
+                                //console.log(data);           // successful response
+                            }  
+                        })
                     })
-                })
-            }else {
-                // console.log("Instance running, need to check S3")
-                // now to tag the instance...
- 
-                //believe this is the place to tag resources....
-                if(typeof job.isTagged === 'undefined'){
-                    tagInstance(job._id)
-                }                
-                
-                var params = {
-                    Bucket: `${awsSettings.bucketName}`, 
-                    Prefix: `${job.uuid}`
-                };
-                s3.listObjects(params, function(err, data) {
-                    bound(() => {
-                        if (err) console.log(err, err.stack); // an error occurred
-                        else {
-                            let NTLMLMPotfile = ''
-                            let NTLMv2Potfile = ''
-                            let status = ''            
-                            _.each(data.Contents, (result) => {
-                                // console.log(result)
-                                if(result.Key.includes("potfile")){
-                                    // We have the NTLM-LM potfile...
-                                    // console.log("We have potfile...")
-                                    if(result.Key.includes("NTLM-LM")){
-                                        NTLMLMPotfile = result.Key
+                }else {
+                    // console.log("Instance running, need to check S3")
+                    // now to tag the instance...
+     
+                    //believe this is the place to tag resources....
+                    if(typeof job.isTagged === 'undefined'){
+                        console.log(`Tagging: ${JSON.stringify(job)}`)
+                        tagInstance(job._id)
+                    }                
+                    
+                    var params = {
+                        Bucket: `${awsSettings.bucketName}`, 
+                        Prefix: `${job.uuid}`
+                    };
+                    s3.listObjects(params, function(err, data) {
+                        bound(() => {
+                            if (err) console.log(err, err.stack); // an error occurred
+                            else {
+                                let NTLMLMPotfile = ''
+                                let NTLMv2Potfile = ''
+                                let status = ''            
+                                _.each(data.Contents, (result) => {
+                                    // console.log(result)
+                                    if(result.Key.includes("potfile")){
+                                        // We have the NTLM-LM potfile...
+                                        // console.log("We have potfile...")
+                                        if(result.Key.includes("NTLM-LM")){
+                                            NTLMLMPotfile = result.Key
+                                        }
+                                        if(result.Key.includes("NTLMv2")){
+                                            NTLMv2Potfile = result.Key
+                                        }
+                                        
                                     }
-                                    if(result.Key.includes("NTLMv2")){
-                                        NTLMv2Potfile = result.Key
-                                    }
-                                    
+                                    if(result.Key.includes("status")){
+                                        // We have a status update...
+                                        // console.log("We have status...")
+                                        status = result.Key
+                                    }                                 
+                                })
+                                // console.log(`Check: status ${status} potfile: ${potfile}`)
+                                if(NTLMLMPotfile !== ''){
+                                    // console.log('process potfile')
+                                    processPotfile(NTLMLMPotfile, s3, job, "NTLM-LM")
+                                    HashCrackJobs.update({"_id":job._id},{$set:{'status':'Cracking Complete'}})    
+                                } else if(NTLMv2Potfile !== ''){
+                                    // console.log('process potfile')
+                                    processPotfile(NTLMv2Potfile, s3, job, "NTLMv2")
+                                    HashCrackJobs.update({"_id":job._id},{$set:{'status':'Cracking Complete'}})    
+                                }else if(status !== ''){
+                                    // console.log(`process status - ${status}`)
+                                    updateJobFromStatus(status, s3, job)
                                 }
-                                if(result.Key.includes("status")){
-                                    // We have a status update...
-                                    // console.log("We have status...")
-                                    status = result.Key
-                                }                                 
-                            })
-                            // console.log(`Check: status ${status} potfile: ${potfile}`)
-                            if(NTLMLMPotfile !== ''){
-                                // console.log('process potfile')
-                                processPotfile(NTLMLMPotfile, s3, job, "NTLM-LM")
-                                HashCrackJobs.update({"_id":job._id},{$set:{'status':'Cracking Complete'}})    
-                            } else if(NTLMv2Potfile !== ''){
-                                // console.log('process potfile')
-                                processPotfile(NTLMv2Potfile, s3, job, "NTLMv2")
-                                HashCrackJobs.update({"_id":job._id},{$set:{'status':'Cracking Complete'}})    
-                            }else if(status !== ''){
-                                // console.log(`process status - ${status}`)
-                                updateJobFromStatus(status, s3, job)
-                            }
-            
-                        }   
+                
+                            }   
+                        })
                     })
-                })
+                }
+            } else {
+                console.log("No status for spotInstanceRequest found... This is an edge case and isn't concerning")
             }
+            
             
         });
         // console.log("Checking for crack results")

@@ -6,7 +6,7 @@
 import { Meteor } from 'meteor/meteor';
 import { Roles } from 'meteor/alanning:roles';
 import { AWSCOLLECTION } from './aws.js';
-const AWS = require('aws-sdk');
+// const AWS = require('aws-sdk');
 import _ from 'lodash';
 
 const bound = Meteor.bindEnvironment((callback) => {callback();});
@@ -509,9 +509,9 @@ Meteor.methods({
                     }
                 })
             }).catch(err => {
-            //     console.log("+++")
-            //     console.log(err.message)
-            //     console.log("+++")
+                console.log("+++")
+                console.log(err.message)
+                console.log("+++")
                 throw new Meteor.Error(err.statusCode,err.code,err.message)
             });
             AWSCOLLECTION.remove({type:'creds'});

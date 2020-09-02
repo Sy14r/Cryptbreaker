@@ -1645,26 +1645,12 @@ crontab -r
 
 echo "Downloading Default Wordlists" > status.txt
 aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
-
 cd /home/ubuntu
-git clone https://github.com/danielmiessler/SecLists.git
-
-echo "Creating Master Wordlist" > status.txt
-aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
-
-cd /home/ubuntu/SecLists/Passwords
-rm -f ./Leaked-Databases/rockyou* 
-rm -f ./*/*withcount*
-rm -f ./Leaked-Databases/phpbb-cleaned-up.txt
-rm -f ./Leaked-Databases/youporn2012-raw.txt
-cd /tmp
-tar xvf /home/ubuntu/SecLists/Passwords/SCRABBLE-hackerhouse.tgz
-mv /tmp/SCRABBLE/Merriam-Webster-SCRABBLE-4thEdition.txt /home/ubuntu/SecLists/Passwords/
-cd /home/ubuntu/SecLists/Passwords
-cp /home/ubuntu/Hob0Rules/wordlists/rockyou.txt ./Leaked-Databases/rockyou.txt 
-cp /home/ubuntu/Hob0Rules/wordlists/english.txt ./english.txt 
-cat \\$(find . -iname "*.txt") | uniq -u > /home/ubuntu/COMBINED-PASS.txt 
-cd /home/ubuntu
+aws s3 cp --request-payer requester s3://cbrqmain/PASSWORDS.zip /home/ubuntu/passzip.zip
+unzip passzip.zip
+mkdir /home/ubuntu/SecLists
+mv Passwords/ SecLists/
+rm -f passzip.zip
 `
 
 let bruteMask = ""
@@ -2156,18 +2142,11 @@ echo "Downloading Default Wordlists" > status.txt
 aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
 
 cd /home/ubuntu
-git clone https://github.com/danielmiessler/SecLists.git
-cd /home/ubuntu/SecLists/Passwords
-rm -f ./Leaked-Databases/rockyou* 
-rm -f ./*/*withcount*
-rm -f ./Leaked-Databases/phpbb-cleaned-up.txt
-rm -f ./Leaked-Databases/youporn2012-raw.txt
-cd /tmp
-tar xvf /home/ubuntu/SecLists/Passwords/SCRABBLE-hackerhouse.tgz
-mv /tmp/SCRABBLE/Merriam-Webster-SCRABBLE-4thEdition.txt /home/ubuntu/SecLists/Passwords/
-cd /home/ubuntu/SecLists/Passwords
-cp /home/ubuntu/Hob0Rules/wordlists/rockyou.txt ./Leaked-Databases/rockyou.txt 
-cp /home/ubuntu/Hob0Rules/wordlists/english.txt ./english.txt 
+aws s3 cp --request-payer requester s3://cbrqmain/PASSWORDS.zip /home/ubuntu/passzip.zip
+unzip passzip.zip
+mkdir /home/ubuntu/SecLists
+mv Passwords/ SecLists/
+rm -f passzip.zip
 
 echo "Restoring Data" > status.txt
 aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status

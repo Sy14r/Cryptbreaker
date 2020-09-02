@@ -265,17 +265,32 @@ class Landing extends React.Component {
                     } 
                 Meteor.call('resumeCrack',{id:id,instanceType:instanceType, availabilityZone:location, rate:rate}, (err) =>   {
                   if(typeof err !== 'undefined'){
-                    // If we had an error...
-                    Swal.fire({
-                    title: 'Could not crack hash files requested',
-                    type: 'error',
-                    showConfirmButton: false,
-                    toast:true,
-                    position:'top-right',
-                    timer:3000,
-                    animation:false,
-                    })
-                  } else {
+                    if(err.details.includes('hashes')){
+                      // specific error
+                      // If we had an error...
+                      Swal.fire({
+                      title: `${err.details}`,
+                      type: 'error',
+                      showConfirmButton: false,
+                      toast:true,
+                      position:'top-right',
+                      timer:3000,
+                      animation:false,
+                      })
+                    } else {
+                      // generic errorI
+                      // If we had an error...
+                      Swal.fire({
+                        title: 'Could not crack hash files requested',
+                        type: 'error',
+                        showConfirmButton: false,
+                        toast:true,
+                        position:'top-right',
+                        timer:3000,
+                        animation:false,
+                        })
+                    }
+                  }else {
                     Swal.fire({
                     title: 'hashes queued for cracking',
                     type: 'success',
@@ -567,10 +582,12 @@ class Landing extends React.Component {
                               // } 
               
                                 Meteor.call('crackHashes',{ids:ids,duration:duration,instanceType:instanceType, availabilityZone:location, rate:rate, maskingOption:formValues, useDictionaries:advancedOptions.dictionaries, bruteLimit:advancedOptions.bruteforce}, (err) =>   {
-                                    if(typeof err !== 'undefined'){
+                                  if(typeof err !== 'undefined'){
+                                    if(err.details.includes('hashes')){
+                                      // specific error
                                       // If we had an error...
                                       Swal.fire({
-                                      title: 'Could not crack hash files requested',
+                                      title: `${err.details}`,
                                       type: 'error',
                                       showConfirmButton: false,
                                       toast:true,
@@ -579,6 +596,19 @@ class Landing extends React.Component {
                                       animation:false,
                                       })
                                     } else {
+                                      // generic errorI
+                                      // If we had an error...
+                                      Swal.fire({
+                                        title: 'Could not crack hash files requested',
+                                        type: 'error',
+                                        showConfirmButton: false,
+                                        toast:true,
+                                        position:'top-right',
+                                        timer:3000,
+                                        animation:false,
+                                        })
+                                    }
+                                  }else {
                                       Swal.fire({
                                       title: 'hashes queued for cracking',
                                       type: 'success',
@@ -628,16 +658,31 @@ class Landing extends React.Component {
             
                               Meteor.call('crackHashes',{ids:ids,duration:duration,instanceType:instanceType, availabilityZone:location, rate:rate, maskingOption:formValues,useDictionaries:true, bruteLimit:"7"}, (err) =>   {
                                   if(typeof err !== 'undefined'){
-                                    // If we had an error...
-                                    Swal.fire({
-                                    title: 'Could not crack hash files requested',
-                                    type: 'error',
-                                    showConfirmButton: false,
-                                    toast:true,
-                                    position:'top-right',
-                                    timer:3000,
-                                    animation:false,
-                                    })
+                                    if(err.details.includes('hashes')){
+                                      // specific error
+                                      // If we had an error...
+                                      Swal.fire({
+                                      title: `${err.details}`,
+                                      type: 'error',
+                                      showConfirmButton: false,
+                                      toast:true,
+                                      position:'top-right',
+                                      timer:3000,
+                                      animation:false,
+                                      })
+                                    } else {
+                                      // generic errorI
+                                      // If we had an error...
+                                      Swal.fire({
+                                        title: 'Could not crack hash files requested',
+                                        type: 'error',
+                                        showConfirmButton: false,
+                                        toast:true,
+                                        position:'top-right',
+                                        timer:3000,
+                                        animation:false,
+                                        })
+                                    }
                                   } else {
                                     Swal.fire({
                                     title: 'hashes queued for cracking',
@@ -967,9 +1012,11 @@ class Landing extends React.Component {
         item.uploadDate = item.uploadDate.toLocaleString().split(',')[0];
         item.actions = 
         <>
-          <Tooltip rowid={item._id} title={"Attempt to Crack"}>
-            <VPNKeyIcon  rowid={item._id} onClick={this.handleClickCrack} className="rotatedIcon" />
-          </Tooltip>
+          {item.hashCount > 0 ?
+            <Tooltip rowid={item._id} title={"Attempt to Crack"}>
+              <VPNKeyIcon  rowid={item._id} onClick={this.handleClickCrack} className="rotatedIcon" />
+            </Tooltip> 
+          : null}
           <Tooltip rowid={item._id} title={"Configure Password Policy"}>
             <PolicyIcon  rowid={item._id} onClick={() => {this.handleClickPolicy(item.passwordPolicy)}} />
           </Tooltip>

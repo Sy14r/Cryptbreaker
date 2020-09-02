@@ -638,7 +638,7 @@ Meteor.methods({
                                                 "s3:GetAccessPointPolicy",
                                                 "s3:GetObjectVersion"
                                             ],
-                                            "Resource": "arn:aws:s3:::cbrqmain/COMBINED-PASS.txt"
+                                            "Resource": "arn:aws:s3:::cbrqmain/PASSWORDS.zip"
                                         },
                                         {
                                             Sid: "Crackdown2",

@@ -1543,6 +1543,9 @@ export function queueCrackJob(data){
         const hashTypes = distinct("meta.type",{$or:queryDoc},{fields:{data:1}});
         const uuidv4 = require('uuid/v4');
         const randomVal = uuidv4();
+        if(hashTypes.length === 0) {
+            throw new Meteor.Error(500,'500 Internal Server Error','The requested action would process no hashes')
+        }
         _.each(hashTypes, (type) => {
             let hashes = Hashes.find({$and:[{$or:queryDoc},{'meta.type':{$eq: type}},{'meta.plaintext':{$exists:false}},{'data':{$not:/^31D6CFE0D16AE931B73C59D7E0C089C0$/}},{'data':{$not:/^AAD3B435B51404EEAAD3B435B51404EE$/}}]},{fields:{data:1}}).fetch()
             let hashArray = [];

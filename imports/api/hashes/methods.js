@@ -356,83 +356,62 @@ async function processNTDSZip(fileName, fileData, date){
     let buff = new Buffer(data, 'base64');
 
     var fsWriteFileSync = Meteor.wrapAsync(fs.writeFile,fs);
-    fs.mkdirSync(`/tmp/${fileName}`)
-    fsWriteFileSync(`/tmp/${fileName}/${fileName}`,buff);
+    const uuidv4 = require('uuid/v4');
+    const randomVal = uuidv4();
+    let randomFname = `${randomVal}-${fileName}`
+    fs.mkdirSync(`/tmp/${randomFname}`)
+    fs.mkdirSync(`/tmp/${randomFname}/registry`)
+    fs.mkdirSync(`/tmp/${randomFname}/Active Directory`)
+
+
+    fsWriteFileSync(`/tmp/${randomFname}/${fileName}`,buff);
     // we have the file in /tmp
     bound(() =>{HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:10, description:"Extracting ZIP"}})})
     var zip = new StreamZip({
-        file: `/tmp/${fileName}/${fileName}`
+        file: `/tmp/${randomFname}/${fileName}`
       , storeEntries: true
     });
+
+    const util = require('util');
+    const exec = util.promisify(require('child_process').exec);
+
     zip.on('error', function(err) { 
         bound(() =>{HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:-1, description:"Error Extracting ZIP"}})})
+        exec(`rm -rf "/tmp/${randomFname}"`)
         console.error('[ERROR]', err); 
-    });
+        return true
 
-    zip.on('ready', function () {
-    // console.log('All entries read: ' + zip.entriesCount);
-    // console.log(zip.entries());
     });
-    let total = 0
     let count = 0
-    let pathsToMake = []
     zip.on('entry', function (entry) {
-        var pathname = path.resolve(`/tmp/${fileName}/`, entry.name);
-        // console.log(pathname)
-        if (/\.\./.test(path.relative(`/tmp/${fileName}/`, pathname))) {
-            // console.warn("[zip warn]: ignoring maliciously crafted paths in zip file:", entry.name);
-            total++
-            return;
-        }
-        if ('/' === entry.name[entry.name.length - 1]) {
-          console.log('[DIR]', entry.name);
-        //   fs.mkdirSync(pathname)
-          return;
-        } else {
-            console.log('[FILE]', entry.name);
-            let splitVal = pathname.split("/")
-            let dirPathFromFile = splitVal.slice(0,splitVal.length - 1).join("/")
-            if(!pathsToMake.includes(dirPathFromFile)){
-                pathsToMake.push(dirPathFromFile)
-                fs.mkdirSync(dirPathFromFile)
+        let haveFile = entry.isFile
+        let pathname = ""
+        zip.stream(entry.name, function (err, stream) {      
+            // stream.on('error', function (err) { console.log('[ERROR]', err); return; });
+            if(entry.name.toLowerCase().endsWith('system')) {
+                pathname = `/tmp/${randomFname}/registry/SYSTEM`
+            } else if(entry.name.toLowerCase().endsWith('ntds.dit')) {
+                pathname = `/tmp/${randomFname}/Active Directory/ntds.dit`
             }
-            console.log(`[PATH] ${dirPathFromFile}`)
-            total++
-        }
-      
-        // console.log('[FILE]', entry.name);
-        zip.stream(entry.name, function (err, stream) {
-          if (err) { console.error('Error:', err.toString()); return; }
-      
-          stream.on('error', function (err) { console.log('[ERROR]', err); return; });
-      
-          // example: print contents to screen
-          //stream.pipe(process.stdout);
-      
-          // example: save contents to file
-        //   console.log(pathname)
-          fs.stat(pathname, function(err) {
-            if (err != null){
+            if(pathname.length > 0){
                 stream.pipe(fs.createWriteStream(`${pathname}`));
-                count++
-                if(count==total){
+                count++    
+                if(count==2){
                     bound(() =>{HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:20, description:"Recovering Secrets"}})})
                     // console.log("ZIP PROCESSED")
                     // console.log("Recovering Secrets...")
-                    const util = require('util');
-                    const exec = util.promisify(require('child_process').exec);
-
+    
                     //also look here for recovering histoy in the future...
                     async function waitExec() {
-                    const { stdout, stderr } = await exec(`secretsdump.py -system "/tmp/${fileName}/registry/SYSTEM" -ntds "/tmp/${fileName}/Active Directory/ntds.dit" LOCAL -outputfile "/tmp/${fileName}/customer" 2>&1 >/dev/null`);
+                    const { stdout, stderr } = await exec(`secretsdump.py -system "/tmp/${randomFname}/registry/SYSTEM" -ntds "/tmp/${randomFname}/Active Directory/ntds.dit" LOCAL -outputfile "/tmp/${randomFname}/customer" 2>&1 >/dev/null`);
                         // console.log('stdout:', stdout);
                         // console.error('stderr:', stderr);
                         bound(() =>{HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:30}})})
                         // console.log(`Secret Recovery Complete...`)
                         // we now have the /tmp/${fileName}/customer.ntds file in the format we want...                      
-                        fs.readFile(`/tmp/${fileName}/customer.ntds`, 'utf8', function(err, contents) {
+                        fs.readFile(`/tmp/${randomFname}/customer.ntds`, 'utf8', function(err, contents) {
                             // console.log(contents);
-                            exec(`rm -rf "/tmp/${fileName}"`)
+                            exec(`rm -rf "/tmp/${randomFname}"`)
                             bound(() =>{HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:45, description:"Adding Hashes to DB"}})})
                             processUpload(fileName, contents, false, hashFileID)
                             return true;
@@ -440,10 +419,11 @@ async function processNTDSZip(fileName, fileData, date){
                     }
                     waitExec();   
                 }
-            }})
+            }
+            
+            
         });
       })
-      
 }
 
 async function processRawHashFile(fileName, fileData, date){

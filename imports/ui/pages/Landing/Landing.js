@@ -21,6 +21,7 @@ import ReactDOM from 'react-dom';
 import { AWSCOLLECTION } from '/imports/api/aws/aws.js'
 import Spinner from '/imports/ui/components/Spinner';
 import Swal from 'sweetalert2'
+import CancelIcon from '@material-ui/icons/Cancel';
 
 import './Landing.scss';
 import { HashFileUploadJobs } from '../../../api/hashes/hashes';
@@ -85,22 +86,36 @@ class Landing extends React.Component {
     return
   };
 
-  handleJobPause = () => {
-    let id = ''
-    if(typeof event.target.getAttribute('rowid') === 'string'){
-      id = event.target.getAttribute('rowid')
-    } else if (event._targetInst){
-      if(typeof event._targetInst.pendingProps.rowid === 'string') {
-        id = event._targetInst.pendingProps.rowid
+  handleJobDelete = (jobId) => {
+    console.log(`Request to delete job: ${jobId}`)
+    Meteor.call('deleteHashCrackJobs',[jobId], (err) =>   {
+      if(typeof err !== 'undefined'){
+        // If we had an error...
+        Swal.fire({
+          title: 'Could not delete hash crack jobs requested',
+          type: 'error',
+          showConfirmButton: false,
+          toast:true,
+          position:'top-right',
+          timer:3000,
+          animation:false,
+        })
       } else {
-        id = event._targetInst.stateNode.ownerSVGElement.getAttribute('rowid')
+        Swal.fire({
+          title: 'hash crack jobs deleted',
+          type: 'success',
+          showConfirmButton: false,
+          toast:true,
+          position:'top-right',
+          timer:3000,
+          animation:false,
+        })
       }
-    } else if (typeof event.target.ownerSVGElement.getAttribute('rowid') === 'string'){
-      id = event.target.ownerSVGElement.getAttribute('rowid')
-    } else {
-      console.log(event)
-      return
-    }
+    })
+  }
+
+  handleJobPause = (jobId) => {
+    let id = jobId
     // let id = event.target.getAttribute('rowid') ? event.target.getAttribute('rowid') : (event._targetInst.pendingProps.rowid ? event._targetInst.pendingProps.rowid : event._targetInst.stateNode.ownerSVGElement.getAttribute('rowid'))
     Meteor.call('pauseCrack',id, (err) =>   {
       if(typeof err !== 'undefined'){
@@ -130,22 +145,8 @@ class Landing extends React.Component {
     return
   };
 
-  handleJobResume = () => {
-    let id = ''
-    if(typeof event.target.getAttribute('rowid') === 'string'){
-      id = event.target.getAttribute('rowid')
-    } else if (event._targetInst){
-      if(typeof event._targetInst.pendingProps.rowid === 'string') {
-        id = event._targetInst.pendingProps.rowid
-      } else {
-        id = event._targetInst.stateNode.ownerSVGElement.getAttribute('rowid')
-      }
-    } else if (typeof event.target.ownerSVGElement.getAttribute('rowid') === 'string'){
-      id = event.target.ownerSVGElement.getAttribute('rowid')
-    } else {
-      console.log(event)
-      return
-    }
+  handleJobResume = (jobId) => {
+    let id = jobId
     let instanceType = '';
     let duration = 1;
     // Before cracking hashes... we ned to ask a few questions (instance type decision, maximum price willing to pay/hour, time to run (in hours) )
@@ -1051,14 +1052,27 @@ class Landing extends React.Component {
           item.actions = 
           <>
             <Tooltip rowid={item._id} title={"Pause Job"}>
-              <PauseCircleFilledIcon  rowid={item._id} onClick={this.handleJobPause} />
+              <PauseCircleFilledIcon  rowid={item._id} onClick={() => this.handleJobPause(item._id)} />
+            </Tooltip>
+            <Tooltip rowid={item._id} title={"Delete Job"}>
+              <CancelIcon  rowid={item._id} onClick={() => this.handleJobDelete(item.uuid)} />
             </Tooltip>
           </>   
         } else if(item.status === "Job Paused"){
           item.actions = 
           <>
             <Tooltip rowid={item._id} title={"Resume Job"}>
-              <PlayCircleFilledIcon  rowid={item._id} onClick={this.handleJobResume} />
+              <PlayCircleFilledIcon  rowid={item._id} onClick={() => this.handleJobResume(item._id)} />
+            </Tooltip>
+            <Tooltip rowid={item._id} title={"Delete Job"}>
+              <CancelIcon  rowid={item._id} onClick={() => this.handleJobDelete(item.uuid)} />
+            </Tooltip>
+          </>
+        } else {
+          item.actions = 
+          <>
+            <Tooltip rowid={item._id} title={"Delete Job"}>
+              <CancelIcon  rowid={item._id} onClick={() => this.handleJobDelete(item.uuid)} />
             </Tooltip>
           </>
         }

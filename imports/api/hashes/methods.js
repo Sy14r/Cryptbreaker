@@ -35,6 +35,9 @@ function deleteAllFilesWithPrefix(prefix, s3obj){
                     }
                     s3obj.deleteObject(params, function(err, data) {
                         if (err) console.log(err, err.stack); // an error occurred
+                        else {
+                            bound(() => { HashCrackJobs.remove({"uuid":prefix}) })
+                        }
                         // else {
                         //     bound(() => {
                         //         HashCrackJobs.update({"_id":job._id},{$set:{'status':'Job Completed'}})
@@ -624,8 +627,6 @@ async function processRawHashFile(fileName, fileData, date){
                 throw new Meteor.Error('E1234', err.message);
                 }
                 HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:100,description:"File Uploaded Successfully"}})
-                // TODO: Move Remove of HashFileUploadJobs where the uploadStatus == 100 to a cron every 5 minutes
-                // HashFileUploadJobs.remove({"_id":hashFileUploadJobID})
             });
         
         } catch (err) {
@@ -861,8 +862,6 @@ export async function processUpload(fileName, fileData, isBase64, providedID){
                     throw new Meteor.Error('E1234', err.message);
                     }
                     HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:100,description:"File Uploaded Successfully"}})
-                    // TODO: Move Remove of HashFileUploadJobs where the uploadStatus == 100 to a cron every 5 minutes
-                    // HashFileUploadJobs.remove({"_id":hashFileUploadJobID})
                 }).then(() => {
                     // Calcualte reuse stats
                     let hashFileUsersKey = `$meta.username.${hashFileID}`
@@ -2617,13 +2616,39 @@ export function deleteCrackJobs(fileIDArray){
             let theHCJ = HashCrackJobs.findOne({"uuid":fileID})
             if(theHCJ.status === 'Job Completed' || theHCJ.status === 'Job Paused' || theHCJ.status.includes("cancelled") || theHCJ.status.includes("Failed")){
                 deleteAllFilesWithPrefix(theHCJ.uuid, s3)
-                HashCrackJobs.remove({"uuid":fileID})
+                // HashCrackJobs.remove({"uuid":fileID})
+            } else if(typeof theHCJ.spotInstanceRequest.InstanceId !== 'undefined'){
+                // TODO - Implement terminate all cloud resources function. AWS SDK will not terminate instances if you cancle spot instance request so for now
+                //      - lets just find the resulting instance id and forcably terminate *it*. theHCJ.spotInstanceRequest.InstanceID has the id of the EC2
+                //      - instance to terminate... so maybe just call the terminate function here instead of functionalizing this for now
+                AWS.config.update({region: theHCJ.availabilityZone.replace(/[a-z]$/g, '')});
+
+                let ec2 = new AWS.EC2()
+                var params = {
+                    InstanceIds: [
+                        theHCJ.spotInstanceRequest.InstanceId
+                    ]
+                };
+                ec2.terminateInstances(params, function(err, data) {
+                    if (err) console.log(err, err.stack); // an error occurred
+                    else {
+                        bound(() => { 
+                            deleteAllFilesWithPrefix(fileID, s3);
+                        })
+                    }
+                });
+                
+            } else {
+                console.log("HERE IN ERROR")
+                console.log(theHCJ.spotInstanceRequest)
+                throw new Meteor.Error(400,'Unable to Handle Request','The Job is in a state which cannot be cancelleed')
             }
         })
         return true
     }
 }
 
+// TODO - Fix tagging to be more reliable, edge case exists where we're unable to tag...
 export function tagInstance(jobID){
     let creds = AWSCOLLECTION.findOne({type:'creds'})
     if(creds){

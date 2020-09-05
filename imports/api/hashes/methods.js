@@ -2618,11 +2618,7 @@ export function deleteCrackJobs(fileIDArray){
                 deleteAllFilesWithPrefix(theHCJ.uuid, s3)
                 // HashCrackJobs.remove({"uuid":fileID})
             } else if(typeof theHCJ.spotInstanceRequest.InstanceId !== 'undefined'){
-                // TODO - Implement terminate all cloud resources function. AWS SDK will not terminate instances if you cancle spot instance request so for now
-                //      - lets just find the resulting instance id and forcably terminate *it*. theHCJ.spotInstanceRequest.InstanceID has the id of the EC2
-                //      - instance to terminate... so maybe just call the terminate function here instead of functionalizing this for now
                 AWS.config.update({region: theHCJ.availabilityZone.replace(/[a-z]$/g, '')});
-
                 let ec2 = new AWS.EC2()
                 var params = {
                     InstanceIds: [

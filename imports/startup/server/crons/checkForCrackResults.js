@@ -1050,16 +1050,14 @@ function checkForCrackResults() {
                             }  
                         })
                     })
-                }else {
-                    // console.log("Instance running, need to check S3")
-                    // now to tag the instance...
-     
+                }else {     
                     //believe this is the place to tag resources....
-                    if(typeof job.isTagged === 'undefined'){
-                        console.log(`Tagging: ${JSON.stringify(job)}`)
-                        tagInstance(job._id)
-                    }                
-                    
+                    if(typeof job.spotInstanceRequest.InstanceId !== 'undefined'){
+                        if(typeof job.isTagged === 'undefined'){
+                            tagInstance(job._id)
+                        }  
+                    }
+                                  
                     var params = {
                         Bucket: `${awsSettings.bucketName}`, 
                         Prefix: `${job.uuid}`

@@ -1,6 +1,5 @@
 FROM jshimko/meteor-launchpad:latest
-#FROM johnnyutahio/meteor-launchpad:latest
-#FROM sy14r/meteor-launchpad:latest
+
 RUN apt-get update && apt-get install -y \
 	python \
 	python-pip \

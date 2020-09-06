@@ -1,0 +1,21 @@
+# docker-compose.yml
+version: "3.8"
+
+services:
+  app:
+    image: sy14r/cryptbreaker:latest
+    ports:
+      - "80:3000"
+    links:
+      - mongo
+    environment:
+      - MONGO_URL=mongodb://mongo:27017/meteor
+
+  mongo:
+    image: mongo:latest
+    command: mongod --storageEngine=wiredTiger
+    volumes:
+      - db-data:/data/db
+
+volumes:
+  db-data:

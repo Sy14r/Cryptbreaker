@@ -2518,7 +2518,7 @@ export function deleteCrackJobs(fileIDArray){
             let theHCJ = HashCrackJobs.findOne({"uuid":fileID})
             if(theHCJ.status === 'Job Completed' || theHCJ.status === 'Job Paused' || theHCJ.status.includes("cancelled") || theHCJ.status.includes("Failed")){
                 deleteAllFilesWithPrefix(theHCJ.uuid, s3)
-                // HashCrackJobs.remove({"uuid":fileID})
+                HashCrackJobs.remove({"uuid":fileID})
             } else if(typeof theHCJ.spotInstanceRequest.InstanceId !== 'undefined'){
                 AWS.config.update({region: theHCJ.availabilityZone.replace(/[a-z]$/g, '')});
                 let ec2 = new AWS.EC2()
@@ -2538,7 +2538,7 @@ export function deleteCrackJobs(fileIDArray){
                 
             } else {
                 console.log("HERE IN ERROR")
-                console.log(theHCJ.spotInstanceRequest)
+                console.log(theHCJ.status)
                 throw new Meteor.Error(400,'Unable to Handle Request','The Job is in a state which cannot be cancelleed')
             }
         })

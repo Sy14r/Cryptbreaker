@@ -26,7 +26,6 @@ class CustomAPIKeySelect extends React.Component {
     return ids;
   }
 
-  //TODO: Update with actual toast vs swal
   handleClickDelete = () => {
     let ids = this.getIdsFromSelection();
     Meteor.call('deleteHashes',ids, (err) =>   {

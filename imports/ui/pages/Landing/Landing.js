@@ -21,6 +21,7 @@ import ReactDOM from 'react-dom';
 import { AWSCOLLECTION } from '/imports/api/aws/aws.js'
 import Spinner from '/imports/ui/components/Spinner';
 import Swal from 'sweetalert2'
+import CancelIcon from '@material-ui/icons/Cancel';
 
 import './Landing.scss';
 import { HashFileUploadJobs } from '../../../api/hashes/hashes';
@@ -85,22 +86,36 @@ class Landing extends React.Component {
     return
   };
 
-  handleJobPause = () => {
-    let id = ''
-    if(typeof event.target.getAttribute('rowid') === 'string'){
-      id = event.target.getAttribute('rowid')
-    } else if (event._targetInst){
-      if(typeof event._targetInst.pendingProps.rowid === 'string') {
-        id = event._targetInst.pendingProps.rowid
+  handleJobDelete = (jobId) => {
+    console.log(`Request to delete job: ${jobId}`)
+    Meteor.call('deleteHashCrackJobs',[jobId], (err) =>   {
+      if(typeof err !== 'undefined'){
+        // If we had an error...
+        Swal.fire({
+          title: 'Could not delete hash crack jobs requested',
+          type: 'error',
+          showConfirmButton: false,
+          toast:true,
+          position:'top-right',
+          timer:3000,
+          animation:false,
+        })
       } else {
-        id = event._targetInst.stateNode.ownerSVGElement.getAttribute('rowid')
+        Swal.fire({
+          title: 'hash crack jobs deleted',
+          type: 'success',
+          showConfirmButton: false,
+          toast:true,
+          position:'top-right',
+          timer:3000,
+          animation:false,
+        })
       }
-    } else if (typeof event.target.ownerSVGElement.getAttribute('rowid') === 'string'){
-      id = event.target.ownerSVGElement.getAttribute('rowid')
-    } else {
-      console.log(event)
-      return
-    }
+    })
+  }
+
+  handleJobPause = (jobId) => {
+    let id = jobId
     // let id = event.target.getAttribute('rowid') ? event.target.getAttribute('rowid') : (event._targetInst.pendingProps.rowid ? event._targetInst.pendingProps.rowid : event._targetInst.stateNode.ownerSVGElement.getAttribute('rowid'))
     Meteor.call('pauseCrack',id, (err) =>   {
       if(typeof err !== 'undefined'){
@@ -130,22 +145,8 @@ class Landing extends React.Component {
     return
   };
 
-  handleJobResume = () => {
-    let id = ''
-    if(typeof event.target.getAttribute('rowid') === 'string'){
-      id = event.target.getAttribute('rowid')
-    } else if (event._targetInst){
-      if(typeof event._targetInst.pendingProps.rowid === 'string') {
-        id = event._targetInst.pendingProps.rowid
-      } else {
-        id = event._targetInst.stateNode.ownerSVGElement.getAttribute('rowid')
-      }
-    } else if (typeof event.target.ownerSVGElement.getAttribute('rowid') === 'string'){
-      id = event.target.ownerSVGElement.getAttribute('rowid')
-    } else {
-      console.log(event)
-      return
-    }
+  handleJobResume = (jobId) => {
+    let id = jobId
     let instanceType = '';
     let duration = 1;
     // Before cracking hashes... we ned to ask a few questions (instance type decision, maximum price willing to pay/hour, time to run (in hours) )
@@ -190,9 +191,9 @@ class Landing extends React.Component {
             else if(key === 'p3_16xl'){
                 inputOptions.p3_16xl = `${key} - $${value.cheapest}/hr (${value.az})`
             } 
-            else if(key === 'p3dn_24xl'){
-                inputOptions.p3dn_24xl = `${key} - $${value.cheapest}/hr (${value.az})`
-            } 
+            // else if(key === 'p3dn_24xl'){
+            //     inputOptions.p3dn_24xl = `${key} - $${value.cheapest}/hr (${value.az})`
+            // } 
           } 
           Swal.fire({
             title: 'Select an Instance Type',
@@ -228,9 +229,9 @@ class Landing extends React.Component {
                 else if(result.value === 'p3_16xl'){
                     rate = this.props.awsPricing[0].data.p3_16xl.cheapest
                 } 
-                else if(result.value === 'p3dn_24xl'){
-                    rate = this.props.awsPricing[0].data.p3dn_24xl.cheapest
-                } 
+                // else if(result.value === 'p3dn_24xl'){
+                //     rate = this.props.awsPricing[0].data.p3dn_24xl.cheapest
+                // } 
                 instanceType = result.value;
                 // Here is the more detailed prompt for no redaction/class level/length
                 Swal.fire({
@@ -259,23 +260,38 @@ class Landing extends React.Component {
                         location = this.props.awsPricing[0].data.p3_16xl.az
                         rate = this.props.awsPricing[0].data.p3_16xl.cheapest
                     } 
-                    else if(instanceType === 'p3dn_24xl'){
-                        location = this.props.awsPricing[0].data.p3dn_24xl.az
-                        rate = this.props.awsPricing[0].data.p3dn_24xl.cheapest
-                    } 
+                    // else if(instanceType === 'p3dn_24xl'){
+                    //     location = this.props.awsPricing[0].data.p3dn_24xl.az
+                    //     rate = this.props.awsPricing[0].data.p3dn_24xl.cheapest
+                    // } 
                 Meteor.call('resumeCrack',{id:id,instanceType:instanceType, availabilityZone:location, rate:rate}, (err) =>   {
                   if(typeof err !== 'undefined'){
-                    // If we had an error...
-                    Swal.fire({
-                    title: 'Could not crack hash files requested',
-                    type: 'error',
-                    showConfirmButton: false,
-                    toast:true,
-                    position:'top-right',
-                    timer:3000,
-                    animation:false,
-                    })
-                  } else {
+                    if(err.details.includes('hashes')){
+                      // specific error
+                      // If we had an error...
+                      Swal.fire({
+                      title: `${err.details}`,
+                      type: 'error',
+                      showConfirmButton: false,
+                      toast:true,
+                      position:'top-right',
+                      timer:3000,
+                      animation:false,
+                      })
+                    } else {
+                      // generic errorI
+                      // If we had an error...
+                      Swal.fire({
+                        title: 'Could not crack hash files requested',
+                        type: 'error',
+                        showConfirmButton: false,
+                        toast:true,
+                        position:'top-right',
+                        timer:3000,
+                        animation:false,
+                        })
+                    }
+                  }else {
                     Swal.fire({
                     title: 'hashes queued for cracking',
                     type: 'success',
@@ -567,10 +583,12 @@ class Landing extends React.Component {
                               // } 
               
                                 Meteor.call('crackHashes',{ids:ids,duration:duration,instanceType:instanceType, availabilityZone:location, rate:rate, maskingOption:formValues, useDictionaries:advancedOptions.dictionaries, bruteLimit:advancedOptions.bruteforce}, (err) =>   {
-                                    if(typeof err !== 'undefined'){
+                                  if(typeof err !== 'undefined'){
+                                    if(err.details.includes('hashes')){
+                                      // specific error
                                       // If we had an error...
                                       Swal.fire({
-                                      title: 'Could not crack hash files requested',
+                                      title: `${err.details}`,
                                       type: 'error',
                                       showConfirmButton: false,
                                       toast:true,
@@ -579,6 +597,19 @@ class Landing extends React.Component {
                                       animation:false,
                                       })
                                     } else {
+                                      // generic errorI
+                                      // If we had an error...
+                                      Swal.fire({
+                                        title: 'Could not crack hash files requested',
+                                        type: 'error',
+                                        showConfirmButton: false,
+                                        toast:true,
+                                        position:'top-right',
+                                        timer:3000,
+                                        animation:false,
+                                        })
+                                    }
+                                  }else {
                                       Swal.fire({
                                       title: 'hashes queued for cracking',
                                       type: 'success',
@@ -628,16 +659,31 @@ class Landing extends React.Component {
             
                               Meteor.call('crackHashes',{ids:ids,duration:duration,instanceType:instanceType, availabilityZone:location, rate:rate, maskingOption:formValues,useDictionaries:true, bruteLimit:"7"}, (err) =>   {
                                   if(typeof err !== 'undefined'){
-                                    // If we had an error...
-                                    Swal.fire({
-                                    title: 'Could not crack hash files requested',
-                                    type: 'error',
-                                    showConfirmButton: false,
-                                    toast:true,
-                                    position:'top-right',
-                                    timer:3000,
-                                    animation:false,
-                                    })
+                                    if(err.details.includes('hashes')){
+                                      // specific error
+                                      // If we had an error...
+                                      Swal.fire({
+                                      title: `${err.details}`,
+                                      type: 'error',
+                                      showConfirmButton: false,
+                                      toast:true,
+                                      position:'top-right',
+                                      timer:3000,
+                                      animation:false,
+                                      })
+                                    } else {
+                                      // generic errorI
+                                      // If we had an error...
+                                      Swal.fire({
+                                        title: 'Could not crack hash files requested',
+                                        type: 'error',
+                                        showConfirmButton: false,
+                                        toast:true,
+                                        position:'top-right',
+                                        timer:3000,
+                                        animation:false,
+                                        })
+                                    }
                                   } else {
                                     Swal.fire({
                                     title: 'hashes queued for cracking',
@@ -967,9 +1013,11 @@ class Landing extends React.Component {
         item.uploadDate = item.uploadDate.toLocaleString().split(',')[0];
         item.actions = 
         <>
-          <Tooltip rowid={item._id} title={"Attempt to Crack"}>
-            <VPNKeyIcon  rowid={item._id} onClick={this.handleClickCrack} className="rotatedIcon" />
-          </Tooltip>
+          {item.hashCount > 0 ?
+            <Tooltip rowid={item._id} title={"Attempt to Crack"}>
+              <VPNKeyIcon  rowid={item._id} onClick={this.handleClickCrack} className="rotatedIcon" />
+            </Tooltip> 
+          : null}
           <Tooltip rowid={item._id} title={"Configure Password Policy"}>
             <PolicyIcon  rowid={item._id} onClick={() => {this.handleClickPolicy(item.passwordPolicy)}} />
           </Tooltip>
@@ -996,7 +1044,7 @@ class Landing extends React.Component {
             }
           }
           else if(item.spotInstanceRequest.Status.Code === "fulfilled"){
-            item.status = "Upgrading and Installing Necessary Software"
+            item.status = "Launching Instance"
           }
         }
 
@@ -1004,14 +1052,27 @@ class Landing extends React.Component {
           item.actions = 
           <>
             <Tooltip rowid={item._id} title={"Pause Job"}>
-              <PauseCircleFilledIcon  rowid={item._id} onClick={this.handleJobPause} />
+              <PauseCircleFilledIcon  rowid={item._id} onClick={() => this.handleJobPause(item._id)} />
+            </Tooltip>
+            <Tooltip rowid={item._id} title={"Delete Job"}>
+              <CancelIcon  rowid={item._id} onClick={() => this.handleJobDelete(item.uuid)} />
             </Tooltip>
           </>   
         } else if(item.status === "Job Paused"){
           item.actions = 
           <>
             <Tooltip rowid={item._id} title={"Resume Job"}>
-              <PlayCircleFilledIcon  rowid={item._id} onClick={this.handleJobResume} />
+              <PlayCircleFilledIcon  rowid={item._id} onClick={() => this.handleJobResume(item._id)} />
+            </Tooltip>
+            <Tooltip rowid={item._id} title={"Delete Job"}>
+              <CancelIcon  rowid={item._id} onClick={() => this.handleJobDelete(item.uuid)} />
+            </Tooltip>
+          </>
+        } else {
+          item.actions = 
+          <>
+            <Tooltip rowid={item._id} title={"Delete Job"}>
+              <CancelIcon  rowid={item._id} onClick={() => this.handleJobDelete(item.uuid)} />
             </Tooltip>
           </>
         }

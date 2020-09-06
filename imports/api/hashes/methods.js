@@ -15,6 +15,12 @@ var StreamZip = require('node-stream-zip');
 import _ from 'lodash';
 
 const bound = Meteor.bindEnvironment((callback) => {callback();});
+const amiMap = {
+    'us-east-1':"ami-030eb4b86675e3678",
+    'us-east-2':"ami-039254fb05803904f",
+    'us-west-1':"ami-054b1f685073e1f46",
+    'us-west-2':"ami-06369bbb8d5859975"
+}
 
 function deleteAllFilesWithPrefix(prefix, s3obj){
     let awsSettings = AWSCOLLECTION.findOne({'type':"settings"})
@@ -35,6 +41,9 @@ function deleteAllFilesWithPrefix(prefix, s3obj){
                     }
                     s3obj.deleteObject(params, function(err, data) {
                         if (err) console.log(err, err.stack); // an error occurred
+                        else {
+                            bound(() => { HashCrackJobs.remove({"uuid":prefix}) })
+                        }
                         // else {
                         //     bound(() => {
                         //         HashCrackJobs.update({"_id":job._id},{$set:{'status':'Job Completed'}})
@@ -356,83 +365,62 @@ async function processNTDSZip(fileName, fileData, date){
     let buff = new Buffer(data, 'base64');
 
     var fsWriteFileSync = Meteor.wrapAsync(fs.writeFile,fs);
-    fs.mkdirSync(`/tmp/${fileName}`)
-    fsWriteFileSync(`/tmp/${fileName}/${fileName}`,buff);
+    const uuidv4 = require('uuid/v4');
+    const randomVal = uuidv4();
+    let randomFname = `${randomVal}-${fileName}`
+    fs.mkdirSync(`/tmp/${randomFname}`)
+    fs.mkdirSync(`/tmp/${randomFname}/registry`)
+    fs.mkdirSync(`/tmp/${randomFname}/Active Directory`)
+
+
+    fsWriteFileSync(`/tmp/${randomFname}/${fileName}`,buff);
     // we have the file in /tmp
     bound(() =>{HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:10, description:"Extracting ZIP"}})})
     var zip = new StreamZip({
-        file: `/tmp/${fileName}/${fileName}`
+        file: `/tmp/${randomFname}/${fileName}`
       , storeEntries: true
     });
+
+    const util = require('util');
+    const exec = util.promisify(require('child_process').exec);
+
     zip.on('error', function(err) { 
         bound(() =>{HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:-1, description:"Error Extracting ZIP"}})})
+        exec(`rm -rf "/tmp/${randomFname}"`)
         console.error('[ERROR]', err); 
-    });
+        return true
 
-    zip.on('ready', function () {
-    // console.log('All entries read: ' + zip.entriesCount);
-    // console.log(zip.entries());
     });
-    let total = 0
     let count = 0
-    let pathsToMake = []
     zip.on('entry', function (entry) {
-        var pathname = path.resolve(`/tmp/${fileName}/`, entry.name);
-        // console.log(pathname)
-        if (/\.\./.test(path.relative(`/tmp/${fileName}/`, pathname))) {
-            // console.warn("[zip warn]: ignoring maliciously crafted paths in zip file:", entry.name);
-            total++
-            return;
-        }
-        if ('/' === entry.name[entry.name.length - 1]) {
-          console.log('[DIR]', entry.name);
-        //   fs.mkdirSync(pathname)
-          return;
-        } else {
-            console.log('[FILE]', entry.name);
-            let splitVal = pathname.split("/")
-            let dirPathFromFile = splitVal.slice(0,splitVal.length - 1).join("/")
-            if(!pathsToMake.includes(dirPathFromFile)){
-                pathsToMake.push(dirPathFromFile)
-                fs.mkdirSync(dirPathFromFile)
+        let haveFile = entry.isFile
+        let pathname = ""
+        zip.stream(entry.name, function (err, stream) {      
+            // stream.on('error', function (err) { console.log('[ERROR]', err); return; });
+            if(entry.name.toLowerCase().endsWith('system')) {
+                pathname = `/tmp/${randomFname}/registry/SYSTEM`
+            } else if(entry.name.toLowerCase().endsWith('ntds.dit')) {
+                pathname = `/tmp/${randomFname}/Active Directory/ntds.dit`
             }
-            console.log(`[PATH] ${dirPathFromFile}`)
-            total++
-        }
-      
-        // console.log('[FILE]', entry.name);
-        zip.stream(entry.name, function (err, stream) {
-          if (err) { console.error('Error:', err.toString()); return; }
-      
-          stream.on('error', function (err) { console.log('[ERROR]', err); return; });
-      
-          // example: print contents to screen
-          //stream.pipe(process.stdout);
-      
-          // example: save contents to file
-        //   console.log(pathname)
-          fs.stat(pathname, function(err) {
-            if (err != null){
+            if(pathname.length > 0){
                 stream.pipe(fs.createWriteStream(`${pathname}`));
-                count++
-                if(count==total){
+                count++    
+                if(count==2){
                     bound(() =>{HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:20, description:"Recovering Secrets"}})})
                     // console.log("ZIP PROCESSED")
                     // console.log("Recovering Secrets...")
-                    const util = require('util');
-                    const exec = util.promisify(require('child_process').exec);
-
+    
                     //also look here for recovering histoy in the future...
                     async function waitExec() {
-                    const { stdout, stderr } = await exec(`secretsdump.py -system "/tmp/${fileName}/registry/SYSTEM" -ntds "/tmp/${fileName}/Active Directory/ntds.dit" LOCAL -outputfile "/tmp/${fileName}/customer" 2>&1 >/dev/null`);
+                    const { stdout, stderr } = await exec(`secretsdump.py -system "/tmp/${randomFname}/registry/SYSTEM" -ntds "/tmp/${randomFname}/Active Directory/ntds.dit" LOCAL -outputfile "/tmp/${randomFname}/customer" 2>&1 >/dev/null`);
                         // console.log('stdout:', stdout);
                         // console.error('stderr:', stderr);
                         bound(() =>{HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:30}})})
                         // console.log(`Secret Recovery Complete...`)
                         // we now have the /tmp/${fileName}/customer.ntds file in the format we want...                      
-                        fs.readFile(`/tmp/${fileName}/customer.ntds`, 'utf8', function(err, contents) {
+                        fs.readFile(`/tmp/${randomFname}/customer.ntds`, 'utf8', function(err, contents) {
                             // console.log(contents);
-                            exec(`rm -rf "/tmp/${fileName}"`)
+                            exec(`rm -rf "/tmp/${randomFname}"`)
                             bound(() =>{HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:45, description:"Adding Hashes to DB"}})})
                             processUpload(fileName, contents, false, hashFileID)
                             return true;
@@ -440,10 +428,11 @@ async function processNTDSZip(fileName, fileData, date){
                     }
                     waitExec();   
                 }
-            }})
+            }
+            
+            
         });
       })
-      
 }
 
 async function processRawHashFile(fileName, fileData, date){
@@ -644,8 +633,6 @@ async function processRawHashFile(fileName, fileData, date){
                 throw new Meteor.Error('E1234', err.message);
                 }
                 HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:100,description:"File Uploaded Successfully"}})
-                // TODO: Move Remove of HashFileUploadJobs where the uploadStatus == 100 to a cron every 5 minutes
-                // HashFileUploadJobs.remove({"_id":hashFileUploadJobID})
             });
         
         } catch (err) {
@@ -881,8 +868,6 @@ export async function processUpload(fileName, fileData, isBase64, providedID){
                     throw new Meteor.Error('E1234', err.message);
                     }
                     HashFileUploadJobs.update({"_id":hashFileUploadJobID},{$set:{uploadStatus:100,description:"File Uploaded Successfully"}})
-                    // TODO: Move Remove of HashFileUploadJobs where the uploadStatus == 100 to a cron every 5 minutes
-                    // HashFileUploadJobs.remove({"_id":hashFileUploadJobID})
                 }).then(() => {
                     // Calcualte reuse stats
                     let hashFileUsersKey = `$meta.username.${hashFileID}`
@@ -1543,6 +1528,9 @@ export function queueCrackJob(data){
         const hashTypes = distinct("meta.type",{$or:queryDoc},{fields:{data:1}});
         const uuidv4 = require('uuid/v4');
         const randomVal = uuidv4();
+        if(hashTypes.length === 0) {
+            throw new Meteor.Error(500,'500 Internal Server Error','The requested action would process no hashes')
+        }
         _.each(hashTypes, (type) => {
             let hashes = Hashes.find({$and:[{$or:queryDoc},{'meta.type':{$eq: type}},{'meta.plaintext':{$exists:false}},{'data':{$not:/^31D6CFE0D16AE931B73C59D7E0C089C0$/}},{'data':{$not:/^AAD3B435B51404EEAAD3B435B51404EE$/}}]},{fields:{data:1}}).fetch()
             let hashArray = [];
@@ -1592,61 +1580,22 @@ export function queueCrackJob(data){
             let userDataString = `#!/bin/bash
 sudo systemctl stop sshd.service
 sudo systemctl disable sshd.service
-sudo DEBIAN_FRONTEND=noninteractive apt-get -yq update
-sudo DEBIAN_FRONTEND=noninteractive apt-get -yq install build-essential linux-headers-$(uname -r) unzip p7zip-full linux-image-extra-virtual 
-sudo DEBIAN_FRONTEND=noninteractive apt-get -yq install python3-pip
-pip3 install psutil
-sudo DEBIAN_FRONTEND=noninteractive apt-get -yq install awscli
-
-sudo touch /etc/modprobe.d/blacklist-nouveau.conf
-sudo bash -c "echo 'blacklist nouveau' >> /etc/modprobe.d/blacklist-nouveau.conf"
-sudo bash -c "echo 'blacklist lbm-nouveau' >> /etc/modprobe.d/blacklist-nouveau.conf"
-sudo bash -c "echo 'options nouveau modeset=0' >> /etc/modprobe.d/blacklist-nouveau.conf"
-sudo bash -c "echo 'alias nouveau off' >> /etc/modprobe.d/blacklist-nouveau.conf"
-sudo bash -c "echo 'alias lbm-nouveau off' >> /etc/modprobe.d/blacklist-nouveau.conf"
-
-sudo touch /etc/modprobe.d/nouveau-kms.conf
-sudo bash -c "echo 'options nouveau modeset=0' >>  /etc/modprobe.d/nouveau-kms.conf"
-sudo update-initramfs -u
-
-cat << EOF > /home/ubuntu/driver-and-hashcat-install.sh
-#!/bin/bash
+crontab -r
+ 
 cd /home/ubuntu
-echo "Configuring Drivers" > status.txt
+echo "Downloading Default Rulesets" > status.txt
+sudo chown ubuntu:ubuntu status.txt
 aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
-
-wget http://us.download.nvidia.com/tesla/410.104/NVIDIA-Linux-x86_64-410.104.run
-sudo /bin/bash NVIDIA-Linux-x86_64-410.104.run --ui=none --no-questions --silent -X
-
-echo "Installing Hashcat" > status.txt
-aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
-
-wget https://hashcat.net/files/hashcat-5.1.0.7z
-7za x hashcat-5.1.0.7z
-
-git clone https://github.com/Sy14r/HashWrap.git
-chmod +x /home/ubuntu/HashWrap/hashwrap
 
 git clone https://github.com/praetorian-code/Hob0Rules.git
-cd /home/ubuntu/Hob0Rules/wordlists
-gunzip *.gz
-crontab -r
 
-cd /home/ubuntu
-git clone https://github.com/danielmiessler/SecLists.git
-cd /home/ubuntu/SecLists/Passwords
-rm -f ./Leaked-Databases/rockyou* 
-rm -f ./*/*withcount*
-rm -f ./Leaked-Databases/phpbb-cleaned-up.txt
-rm -f ./Leaked-Databases/youporn2012-raw.txt
-cd /tmp
-tar xvf /home/ubuntu/SecLists/Passwords/SCRABBLE-hackerhouse.tgz
-mv /tmp/SCRABBLE/Merriam-Webster-SCRABBLE-4thEdition.txt /home/ubuntu/SecLists/Passwords/
-cd /home/ubuntu/SecLists/Passwords
-cp /home/ubuntu/Hob0Rules/wordlists/rockyou.txt ./Leaked-Databases/rockyou.txt 
-cp /home/ubuntu/Hob0Rules/wordlists/english.txt ./english.txt 
-cat \\$(find . -iname "*.txt") | uniq -u > /home/ubuntu/COMBINED-PASS.txt 
-cd /home/ubuntu
+echo "Downloading Default Wordlists" > status.txt
+aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
+aws s3 cp --request-payer requester s3://cbrqmain/PASSWORDS.zip /home/ubuntu/passzip.zip
+unzip passzip.zip
+mkdir /home/ubuntu/SecLists
+mv Passwords/ SecLists/
+rm -f passzip.zip
 `
 
 let bruteMask = ""
@@ -1669,7 +1618,7 @@ aws s3 rm s3://${awsSettings.bucketName}/${randomVal}.NTLM.credentials
 if(data.useDictionaries) {
 userDataString += `
 sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 0 -m 1000 --session ${randomVal} /home/ubuntu/${randomVal}.NTLM.credentials /home/ubuntu/COMBINED-PASS.txt -r /home/ubuntu/Hob0Rules/d3adhob0.rule -o crackedNTLM.txt -O -w 3 &
-while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
+while [ $(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
 do 
     aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.pause /home/ubuntu/hashwrap.pause;
     if [ -f /home/ubuntu/hashwrap.pause ];
@@ -1691,7 +1640,7 @@ then
     echo "Skipping due to pause"        
 else
     sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 3 -m 1000 --session ${randomVal} /home/ubuntu/${randomVal}.NTLM.credentials -o bruteNTLM.txt -i ${bruteMask} -O -w 3 &
-    while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
+    while [ $(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
     do 
         aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.pause /home/ubuntu/hashwrap.pause;
         if [ -f /home/ubuntu/hashwrap.pause ];
@@ -1727,7 +1676,7 @@ then
     echo "Skipping due to pause"
 else
     sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 3 -m 3000 --session ${randomVal} /home/ubuntu/${randomVal}.LM.credentials -o bruteLM.txt -i ?a?a?a?a?a?a?a -O -w 3 &
-    while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
+    while [ $(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
     do 
         aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.pause /home/ubuntu/hashwrap.pause;
         if [ -f /home/ubuntu/hashwrap.pause ];
@@ -1765,7 +1714,7 @@ if(hashTypes.includes("NTLMv2")){
         echo "Skipping due to pause"
     else
         sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 0 -m 5600 --session ${randomVal} /home/ubuntu/${randomVal}.NTLMv2.credentials /home/ubuntu/COMBINED-PASS.txt -r /home/ubuntu/Hob0Rules/d3adhob0.rule -o crackedNTLMv2.txt -O -w 3 &
-        while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
+        while [ $(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
         do 
             aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.pause /home/ubuntu/hashwrap.pause;
             if [ -f /home/ubuntu/hashwrap.pause ];
@@ -1788,7 +1737,7 @@ if(hashTypes.includes("NTLMv2")){
         echo "Skipping due to pause"        
     else
         sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin -a 3 -m 5600 --session ${randomVal} /home/ubuntu/${randomVal}.NTLMv2.credentials -o bruteNTLMv2.txt -i ${bruteMask} -O -w 3 &
-        while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
+        while [ $(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
         do 
             aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.pause /home/ubuntu/hashwrap.pause;
             if [ -f /home/ubuntu/hashwrap.pause ];
@@ -1814,9 +1763,9 @@ if(hashTypes.includes("NTLMv2")){
 // #while read line; do echo -n $line | cut -d ':' -f1 | tr -d '\n'; echo -n ":"; echo cracked; done < /tmp/fake.potfile
 userDataString += `
 sudo chown ubuntu:ubuntu ./hashcat-5.1.0/hashcat.potfile
-sudo chown ubuntu:ubuntu ./hashcat-5.1.0/${randomVal}.restore
 if [ -f /home/ubuntu/hashwrap.pause ]
 then
+sudo chown ubuntu:ubuntu ./hashcat-5.1.0/${randomVal}.restore
 aws s3 cp /home/ubuntu/hashcat-5.1.0/${randomVal}.restore s3://${awsSettings.bucketName}/${randomVal}.restore
 aws s3 rm s3://${awsSettings.bucketName}/${randomVal}.pause
 aws s3 cp /home/ubuntu/${randomVal}.NTLM.credentials s3://${awsSettings.bucketName}/${randomVal}.NTLM.credentials
@@ -1825,12 +1774,11 @@ aws s3 cp /home/ubuntu/${randomVal}.LM.credentials s3://${awsSettings.bucketName
 aws s3 cp /home/ubuntu/COMBINED-PASS.txt s3://${awsSettings.bucketName}/${randomVal}.COMBINED-PASS.txt
 aws s3 cp /home/ubuntu/Hob0Rules/d3adhob0.rule s3://${awsSettings.bucketName}/${randomVal}.d3adhob0.rule
 echo "Exfiling Cracked Hashes prior to pause" > ./status.txt
-else
-echo "Finishing Up..." > ./status.txt
 fi
 # upload files after cracking
 if [ -f ./hashcat-5.1.0/hashcat.potfile ]
 then
+echo "Processing Recovered Passwords" > ./status.txt
 aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
 `
 // below while loop works for NonNTLMv2hashes... will see what we get for NTLMv2 Hashes... likely need to change.
@@ -1840,23 +1788,23 @@ if(hashTypes.includes("NTLM") || hashTypes.includes("LM")){
     userDataString += `
 sudo chown ubuntu:ubuntu *.txt
 cat crackedNTLM.txt bruteNTLM.txt bruteLM.txt > Cracked-LM-NTLM.txt
-cat ./Cracked-LM-NTLM.txt | sed -e 's/ /\\[space\\]/g' > ./Cracked-LM-NTLM.txt.nospaces
+cat ./Cracked-LM-NTLM.txt | sed -e 's/ /[space]/g' > ./Cracked-LM-NTLM.txt.nospaces
 
-while read line; do echo -n \\$(echo \\$line | cut -d':' -f1 | tr -d '\\n') >> NTLM-LM.potfile; echo -n \":\" >> NTLM-LM.potfile; hit=\\$(egrep -l \"^\\$(echo \\$line | cut -d':' -f2-)$\" \\$(find ./SecLists/Passwords/ -iname \"*.txt\") | tr '\\n' ','); if [ \"\\$hit\" != \"\" ]; then echo -n \"\\$hit\" >> NTLM-LM.potfile;echo -n \":\" >> NTLM-LM.potfile; echo \"\\$(echo \\$line | cut -d':' -f2-)\" >> NTLM-LM.potfile; else echo -n \":\" >> NTLM-LM.potfile; echo \"\\$(echo \\$line | cut -d':' -f2-)\" >> NTLM-LM.potfile; fi; done < ./Cracked-LM-NTLM.txt.nospaces
+while read line; do echo -n $(echo $line | cut -d':' -f1 | tr -d '\\n') >> NTLM-LM.potfile; echo -n \":\" >> NTLM-LM.potfile; hit=$(egrep -l \"^$(echo $line | cut -d':' -f2-)$\" $(find ./SecLists/Passwords/ -iname \"*.txt\") | tr '\\n' ','); if [ \"$hit\" != \"\" ]; then echo -n \"$hit\" >> NTLM-LM.potfile;echo -n \":\" >> NTLM-LM.potfile; echo \"$(echo $line | cut -d':' -f2-)\" >> NTLM-LM.potfile; else echo -n \":\" >> NTLM-LM.potfile; echo \"$(echo $line | cut -d':' -f2-)\" >> NTLM-LM.potfile; fi; done < ./Cracked-LM-NTLM.txt.nospaces
     `
     // At this point we have NTLM-LM.potfile with hash:hit1,hit2,hit3:plaintest or hash::plaintext
     // Handle redaction for NTLM/LM
     if(redactionValue.redactionCharacter === true){
         userDataString += `
-        while read line; do echo -n \\$line | cut -d ':' -f1 | tr -d '\\n' >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo -n \\$line | cut -d':' -f2 | tr -d '\\n' >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo \\$line | cut -d':' -f3- | sed -e 's/\\[space\\]/ /g' -e 's/[A-Z]/U/g' -e's/[a-z]/l/g' -e 's/[0-9]/0/g' -e 's/[[:punct:]]/*/g'  >> ./NTLM-LM-FINAL.potfile;   done < ./NTLM-LM.potfile
+        while read line; do echo -n $line | cut -d ':' -f1 | tr -d '\\n' >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo -n $line | cut -d':' -f2 | tr -d '\\n' >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo $line | cut -d':' -f3- | sed -e 's/\\[space\\]/ /g' -e 's/[A-Z]/U/g' -e's/[a-z]/l/g' -e 's/[0-9]/0/g' -e 's/[[:punct:]]/*/g'  >> ./NTLM-LM-FINAL.potfile;   done < ./NTLM-LM.potfile
         `
         } else if(redactionValue.redactionLength === true) {
         userDataString += `
-        while read line; do echo -n \\$line | cut -d ':' -f1 | tr -d '\\n' >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo -n \\$line | cut -d':' -f2 | tr -d '\\n' >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo \\$line | cut -d':' -f3- | sed -e 's/\\[space\\]/ /g' -e 's/[A-Z]/*/g' -e's/[a-z]/*/g' -e 's/[0-9]/*/g' -e 's/[[:punct:]]/*/g'  >> ./NTLM-LM-FINAL.potfile;  done < ./NTLM-LM.potfile
+        while read line; do echo -n $line | cut -d ':' -f1 | tr -d '\\n' >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo -n $line | cut -d':' -f2 | tr -d '\\n' >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo $line | cut -d':' -f3- | sed -e 's/\\[space\\]/ /g' -e 's/[A-Z]/*/g' -e's/[a-z]/*/g' -e 's/[0-9]/*/g' -e 's/[[:punct:]]/*/g'  >> ./NTLM-LM-FINAL.potfile;  done < ./NTLM-LM.potfile
         `
         } else if(redactionValue.redactionFull === true){ 
         userDataString += `
-        while read line; do echo -n \\$line | cut -d ':' -f1 | tr -d '\\n' >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo -n \\$line | cut -d':' -f2  | tr -d '\\n' >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo cracked >> ./NTLM-LM-FINAL.potfile;  done < ./NTLM-LM.potfile
+        while read line; do echo -n $line | cut -d ':' -f1 | tr -d '\\n' >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo -n $line | cut -d':' -f2  | tr -d '\\n' >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo cracked >> ./NTLM-LM-FINAL.potfile;  done < ./NTLM-LM.potfile
         `
         } else {
         userDataString +=`
@@ -1878,21 +1826,21 @@ if(hashTypes.includes("NTLMv2")){
     sudo chown ubuntu:ubuntu *.txt
     cat crackedNTLMv2.txt bruteNTLMv2.txt > Cracked-NTLMv2.txt
     cat ./Cracked-NTLMv2.txt | sed -e 's/ /\\[space\\]/g' > ./Cracked-NTLMv2.txt.nospaces
-    while read line; do echo -n \\$(echo \\$line | cut -d':' -f1-6 | tr -d '\\n') >> NTLMv2.potfile; echo -n \":\" >> NTLMv2.potfile; hit=\\$(egrep -l \"^\\$(echo \\$line | cut -d':' -f7- | tr -d '\\n')$\" \\$(find ./SecLists/Passwords/ -iname \"*.txt\") | tr '\\n' ','); if [ \"\\$hit\" != \"\" ]; then echo -n \"\\$hit\" >> NTLMv2.potfile;echo -n \":\" >> NTLMv2.potfile; echo \"\\$(echo \\$line | cut -d':' -f7- | tr -d '\\n')\" >> NTLMv2.potfile; else echo -n \":\" >> NTLMv2.potfile; echo \"\\$(echo \\$line | cut -d':' -f7- | tr -d '\\n')\" >> NTLMv2.potfile; fi; done < ./Cracked-NTLMv2.txt.nospaces
+    while read line; do echo -n $(echo $line | cut -d':' -f1-6 | tr -d '\\n') >> NTLMv2.potfile; echo -n \":\" >> NTLMv2.potfile; hit=$(egrep -l \"^$(echo $line | cut -d':' -f7- | tr -d '\\n')$\" $(find ./SecLists/Passwords/ -iname \"*.txt\") | tr '\\n' ','); if [ \"$hit\" != \"\" ]; then echo -n \"$hit\" >> NTLMv2.potfile;echo -n \":\" >> NTLMv2.potfile; echo \"$(echo $line | cut -d':' -f7- | tr -d '\\n')\" >> NTLMv2.potfile; else echo -n \":\" >> NTLMv2.potfile; echo \"$(echo $line | cut -d':' -f7- | tr -d '\\n')\" >> NTLMv2.potfile; fi; done < ./Cracked-NTLMv2.txt.nospaces
     `
     // At this point we have NTLM-LM.potfile with hash:hit1,hit2,hit3:plaintest or hash::plaintext
     // Handle redaction for NTLM/LM
     if(redactionValue.redactionCharacter){
         userDataString += `
-        while read line; do echo -n \\$line | cut -d ':' -f1-6 | tr -d '\\n' >> ./NTLMv2-FINAL.potfile; echo -n \":\" >> ./NTLMv2-FINAL.potfile; echo -n \\$line | cut -d':' -f7 >> ./NTLMv2-FINAL.potfile; echo -n \":\" >> ./NTLMv2-FINAL.potfile; echo \\$line | cut -d':' -f8- | sed -e 's/\\[space\\]/ /g' -e 's/[A-Z]/U/g' -e's/[a-z]/l/g' -e 's/[0-9]/0/g' -e 's/[[:punct:]]/*/g' >> ./NTLMv2-FINAL.potfile;   done < ./NTLMv2.potfile
+        while read line; do echo -n $line | cut -d ':' -f1-6 | tr -d '\\n' >> ./NTLMv2-FINAL.potfile; echo -n \":\" >> ./NTLMv2-FINAL.potfile; echo -n $line | cut -d':' -f7 >> ./NTLMv2-FINAL.potfile; echo -n \":\" >> ./NTLMv2-FINAL.potfile; echo $line | cut -d':' -f8- | sed -e 's/\\[space\\]/ /g' -e 's/[A-Z]/U/g' -e's/[a-z]/l/g' -e 's/[0-9]/0/g' -e 's/[[:punct:]]/*/g' >> ./NTLMv2-FINAL.potfile;   done < ./NTLMv2.potfile
         `
         } else if(redactionValue.redactionLength) {
         userDataString += `
-        while read line; do echo -n \\$line | cut -d ':' -f1-6 | tr -d '\\n' >> ./NTLMv2-FINAL.potfile; echo -n \":\" >> ./NTLMv2-FINAL.potfile; echo -n \\$line | cut -d':' -f7 >> ./NTLMv2-FINAL.potfile; echo -n \":\" >> ./NTLMv2-FINAL.potfile; echo \\$line | cut -d':' -f8- | sed -e 's/\\[space\\]/ /g' -e 's/[A-Z]/*/g' -e's/[a-z]/*/g' -e 's/[0-9]/*/g' -e 's/[[:punct:]]/*/g'  >> ./NTLMv2-FINAL.potfile;  done < ./NTLMv2.potfile
+        while read line; do echo -n $line | cut -d ':' -f1-6 | tr -d '\\n' >> ./NTLMv2-FINAL.potfile; echo -n \":\" >> ./NTLMv2-FINAL.potfile; echo -n $line | cut -d':' -f7 >> ./NTLMv2-FINAL.potfile; echo -n \":\" >> ./NTLMv2-FINAL.potfile; echo $line | cut -d':' -f8- | sed -e 's/\\[space\\]/ /g' -e 's/[A-Z]/*/g' -e's/[a-z]/*/g' -e 's/[0-9]/*/g' -e 's/[[:punct:]]/*/g'  >> ./NTLMv2-FINAL.potfile;  done < ./NTLMv2.potfile
         `
         } else if(redactionValue.redactionFull){ 
         userDataString += `
-        while read line; do echo -n \\$line | cut -d ':' -f1-6 | tr -d '\\n' >> ./NTLMv2-FINAL.potfile; echo -n \":\" >> ./NTLMv2-FINAL.potfile; echo -n \\$line | cut -d':' -f7 >> ./NTLMv2-FINAL.potfile; echo -n \":\" >> ./NTLMv2-FINAL.potfile; echo cracked >> ./NTLMv2-FINAL.potfile;  done < ./NTLMv2.potfile
+        while read line; do echo -n $line | cut -d ':' -f1-6 | tr -d '\\n' >> ./NTLMv2-FINAL.potfile; echo -n \":\" >> ./NTLMv2-FINAL.potfile; echo -n $line | cut -d':' -f7 >> ./NTLMv2-FINAL.potfile; echo -n \":\" >> ./NTLMv2-FINAL.potfile; echo cracked >> ./NTLMv2-FINAL.potfile;  done < ./NTLMv2.potfile
         `
         } else {
         userDataString +=`
@@ -1924,27 +1872,22 @@ if(hashTypes.includes("NTLMv2")){
     `
 }
 userDataString += `
-aws s3 rm s3://${awsSettings.bucketName}/${randomVal}.status
+# aws s3 rm s3://${awsSettings.bucketName}/${randomVal}.status
 # Self Terminate on completion
-instanceId=\$(curl http://169.254.169.254/latest/meta-data/instance-id/)
-region=\$(curl http://169.254.169.254/latest/dynamic/instance-identity/document | grep region | awk '{print \$3}' | sed  's/"//g'|sed 's/,//g')
-
-aws ec2 terminate-instances --instance-ids \$(curl http://169.254.169.254/latest/meta-data/instance-id/) --region \$(curl http://169.254.169.254/latest/dynamic/instance-identity/document | grep region | awk '{print \$3}' | sed  's/"//g'|sed 's/,//g')
 fi
-EOF
+instanceId=$(curl http://169.254.169.254/latest/meta-data/instance-id/)
+region=$(curl http://169.254.169.254/latest/dynamic/instance-identity/document | grep region | awk '{print $3}' | sed  's/"//g'|sed 's/,//g')
 
-chmod +x /home/ubuntu/driver-and-hashcat-install.sh
-chown ubuntu:ununtu /home/ubuntu/driver-and-hashcat-install.sh
-
-echo "@reboot ( sleep 15; su -c \"/home/ubuntu/driver-and-hashcat-install.sh\" -s /bin/bash ubuntu )" | crontab -
-sudo reboot`;
+aws ec2 terminate-instances --instance-ids $(curl http://169.254.169.254/latest/meta-data/instance-id/) --region $(curl http://169.254.169.254/latest/dynamic/instance-identity/document | grep region | awk '{print $3}' | sed  's/"//g'|sed 's/,//g')
+`;
 
             let buff = new Buffer(userDataString);
             let userData = buff.toString('base64');
             // console.log(userData)
 
             // console.log(data.availabilityZone.replace(/[a-z]$/g, ''))
-            AWS.config.update({region: data.availabilityZone.replace(/[a-z]$/g, '')});
+            let chosenRegion = data.availabilityZone.replace(/[a-z]$/g, '')
+            AWS.config.update({region: chosenRegion });
             let ec2 = new AWS.EC2()
 
             var params = {
@@ -1961,12 +1904,6 @@ sudo reboot`;
                           "x86_64"
                       ]
                   }
-                // {
-                //     Name:"image-id",
-                //     Values: [
-                //         "ami-05c1fa8df71875112"
-                //     ]
-                // }
                   /* more items */
                 ],
               };
@@ -1985,8 +1922,8 @@ sudo reboot`;
                             IamInstanceProfile: {
                             Arn: `${awsSettings.instanceProfile.Arn}`,
                             }, 
-                            // Hardcoded ubuntu 18.04 64bit AMI
-                            ImageId: imageID, 
+                            // Hardcoded Cryptbreaker AMI
+                            ImageId: amiMap[chosenRegion], 
                             InstanceType: properInstanceType, 
                             Placement: {
                             // Need to send this in data as well...
@@ -2089,59 +2026,19 @@ export function resumeCrackJob(data){
             // We will add .25 to the rate chosen, and will allow this to be user controlled eventually...
             let price = (parseFloat(data.rate) + 0.25).toFixed(2)
             let userDataString = `#!/bin/bash
-sudo systemctl stop sshd.service
-sudo systemctl disable sshd.service
-echo "Upgrading and Installing Necessary Software" > ./status.txt
-aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
-
-sudo DEBIAN_FRONTEND=noninteractive apt-get -yq update
-sudo DEBIAN_FRONTEND=noninteractive apt-get -yq install build-essential linux-headers-$(uname -r) unzip p7zip-full linux-image-extra-virtual 
-sudo DEBIAN_FRONTEND=noninteractive apt-get -yq install python3-pip
-pip3 install psutil
-sudo DEBIAN_FRONTEND=noninteractive apt-get -yq install awscli
-
-sudo touch /etc/modprobe.d/blacklist-nouveau.conf
-sudo bash -c "echo 'blacklist nouveau' >> /etc/modprobe.d/blacklist-nouveau.conf"
-sudo bash -c "echo 'blacklist lbm-nouveau' >> /etc/modprobe.d/blacklist-nouveau.conf"
-sudo bash -c "echo 'options nouveau modeset=0' >> /etc/modprobe.d/blacklist-nouveau.conf"
-sudo bash -c "echo 'alias nouveau off' >> /etc/modprobe.d/blacklist-nouveau.conf"
-sudo bash -c "echo 'alias lbm-nouveau off' >> /etc/modprobe.d/blacklist-nouveau.conf"
-
-sudo touch /etc/modprobe.d/nouveau-kms.conf
-sudo bash -c "echo 'options nouveau modeset=0' >>  /etc/modprobe.d/nouveau-kms.conf"
-sudo update-initramfs -u
-
-cat << EOF > /home/ubuntu/driver-and-hashcat-install.sh
-#!/bin/bash
+systemctl stop sshd.service
+systemctl disable sshd.service
 cd /home/ubuntu
-echo "Configuring Drivers" > status.txt
+echo "Downloading Default Wordlists" > status.txt
 aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
+aws s3 cp --request-payer requester s3://cbrqmain/PASSWORDS.zip /home/ubuntu/passzip.zip
+unzip passzip.zip
+mkdir /home/ubuntu/SecLists
+mv Passwords/ SecLists/
+rm -f passzip.zip
 
-wget http://us.download.nvidia.com/tesla/410.104/NVIDIA-Linux-x86_64-410.104.run
-sudo /bin/bash NVIDIA-Linux-x86_64-410.104.run --ui=none --no-questions --silent -X
-
-echo "Installing Hashcat" > status.txt
+echo "Restoring Data" > status.txt
 aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
-
-wget https://hashcat.net/files/hashcat-5.1.0.7z
-7za x hashcat-5.1.0.7z
-
-git clone https://github.com/Sy14r/HashWrap.git
-chmod +x /home/ubuntu/HashWrap/hashwrap
-
-cd /home/ubuntu
-git clone https://github.com/danielmiessler/SecLists.git
-cd /home/ubuntu/SecLists/Passwords
-rm -f ./Leaked-Databases/rockyou* 
-rm -f ./*/*withcount*
-rm -f ./Leaked-Databases/phpbb-cleaned-up.txt
-rm -f ./Leaked-Databases/youporn2012-raw.txt
-cd /tmp
-tar xvf /home/ubuntu/SecLists/Passwords/SCRABBLE-hackerhouse.tgz
-mv /tmp/SCRABBLE/Merriam-Webster-SCRABBLE-4thEdition.txt /home/ubuntu/SecLists/Passwords/
-cd /home/ubuntu/SecLists/Passwords
-cp /home/ubuntu/Hob0Rules/wordlists/rockyou.txt ./Leaked-Databases/rockyou.txt 
-cp /home/ubuntu/Hob0Rules/wordlists/english.txt ./english.txt 
 
 aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.COMBINED-PASS.txt /home/ubuntu/COMBINED-PASS.txt
 aws s3 rm s3://${awsSettings.bucketName}/${randomVal}.COMBINED-PASS.txt 
@@ -2149,7 +2046,6 @@ aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.d3adhob0.rule /home/ubuntu
 aws s3 rm s3://${awsSettings.bucketName}/${randomVal}.d3adhob0.rule 
 aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.restore /home/ubuntu/hashcat-5.1.0/${randomVal}.restore
 aws s3 rm s3://${awsSettings.bucketName}/${randomVal}.restore 
-cd /home/ubuntu
 `
 
 let bruteMask = ""
@@ -2172,7 +2068,7 @@ aws s3 rm s3://${awsSettings.bucketName}/${randomVal}.NTLM.credentials
 if(theHCJ.stepPaused.includes("NTLM Dictionary")) {
 userDataString += `       
 sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin --session ${randomVal} --restore &
-while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
+while [ $(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
 do 
     aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.pause /home/ubuntu/hashwrap.pause;
     if [ -f /home/ubuntu/hashwrap.pause ];
@@ -2203,7 +2099,7 @@ if(theHCJ.stepPaused.includes("NTLM Brute")){
     `
 }
 userDataString += `
-while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
+while [ $(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
     do 
         aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.pause /home/ubuntu/hashwrap.pause;
         if [ -f /home/ubuntu/hashwrap.pause ];
@@ -2250,7 +2146,7 @@ if(theHCJ.stepPaused.includes(" LM Brute")){
     `
 }
 userDataString += `
-    while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
+    while [ $(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
     do 
         aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.pause /home/ubuntu/hashwrap.pause;
         if [ -f /home/ubuntu/hashwrap.pause ];
@@ -2281,7 +2177,7 @@ if(theHCJ.stepPaused.includes(" NTLMv2 ") || theHCJ.types.includes("NTLMv2")){
     if(theHCJ.stepPaused.includes("NTLMv2 Dictionary")) {
         userDataString += `       
         sudo /home/ubuntu/HashWrap/hashwrap 10 /home/ubuntu/hashcat-5.1.0/hashcat64.bin --session ${randomVal} --restore &
-        while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
+        while [ $(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
         do 
             aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.pause /home/ubuntu/hashwrap.pause;
             if [ -f /home/ubuntu/hashwrap.pause ];
@@ -2312,7 +2208,7 @@ if(theHCJ.stepPaused.includes(" NTLMv2 ") || theHCJ.types.includes("NTLMv2")){
         `
     }
     userDataString += `
-    while [ \\$(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
+    while [ $(ps -ef | grep hashwrap | egrep -v grep | wc -l) -gt "0" ]; 
         do 
             aws s3 cp s3://${awsSettings.bucketName}/${randomVal}.pause /home/ubuntu/hashwrap.pause;
             if [ -f /home/ubuntu/hashwrap.pause ];
@@ -2349,12 +2245,11 @@ aws s3 cp /home/ubuntu/${randomVal}.NTLMv2.credentials s3://${awsSettings.bucket
 aws s3 cp /home/ubuntu/COMBINED-PASS.txt s3://${awsSettings.bucketName}/${randomVal}.COMBINED-PASS.txt
 aws s3 cp /home/ubuntu/Hob0Rules/d3adhob0.rule s3://${awsSettings.bucketName}/${randomVal}.d3adhob0.rule
 echo "Exfiling Cracked Hashes prior to pause" > ./status.txt
-else
-echo "Finishing Up..." > ./status.txt
 fi
 # upload files after cracking
 if [ -f ./hashcat-5.1.0/hashcat.potfile ]
 then
+echo "Processing Recovered Passwords" > ./status.txt
 aws s3 cp ./status.txt s3://${awsSettings.bucketName}/${randomVal}.status
 `
 if(theHCJ.types.includes("NTLM") || theHCJ.types.includes("LM")){
@@ -2364,21 +2259,21 @@ sudo chown ubuntu:ubuntu *.txt
 cat crackedNTLM.txt bruteNTLM.txt bruteLM.txt > Cracked-LM-NTLM.txt
 cat ./Cracked-LM-NTLM.txt | sed -e 's/ /\\[space\\]/g' > ./Cracked-LM-NTLM.txt.nospaces
 
-while read line; do echo -n \\$(echo \\$line | cut -d':' -f1 | tr -d '\\n') >> NTLM-LM.potfile; echo -n \":\" >> NTLM-LM.potfile; hit=\\$(egrep -l \"^\\$(echo \\$line | cut -d':' -f2-)$\" \\$(find ./SecLists/Passwords/ -iname \"*.txt\") | tr '\\n' ','); if [ \"\\$hit\" != \"\" ]; then echo -n \"\\$hit\" >> NTLM-LM.potfile;echo -n \":\" >> NTLM-LM.potfile; echo \"\\$(echo \\$line | cut -d':' -f2-)\" >> NTLM-LM.potfile; else echo -n \":\" >> NTLM-LM.potfile; echo \"\\$(echo \\$line | cut -d':' -f2-)\" >> NTLM-LM.potfile; fi; done < ./Cracked-LM-NTLM.txt.nospaces
+while read line; do echo -n $(echo $line | cut -d':' -f1 | tr -d '\\n') >> NTLM-LM.potfile; echo -n \":\" >> NTLM-LM.potfile; hit=$(egrep -l \"^$(echo $line | cut -d':' -f2-)$\" $(find ./SecLists/Passwords/ -iname \"*.txt\") | tr '\\n' ','); if [ \"$hit\" != \"\" ]; then echo -n \"$hit\" >> NTLM-LM.potfile;echo -n \":\" >> NTLM-LM.potfile; echo \"$(echo $line | cut -d':' -f2-)\" >> NTLM-LM.potfile; else echo -n \":\" >> NTLM-LM.potfile; echo \"$(echo $line | cut -d':' -f2-)\" >> NTLM-LM.potfile; fi; done < ./Cracked-LM-NTLM.txt.nospaces
     `
     // At this point we have NTLM-LM.potfile with hash:hit1,hit2,hit3:plaintest or hash::plaintext
     // Handle redaction for NTLM/LM
     if(theHCJ.configDetails.redactionValue.redactionCharacter){
         userDataString += `
-        while read line; do echo -n \\$line | cut -d ':' -f1 | tr -d '\\n' >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo -n \\$line | cut -d':' -f2 >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo \\$line | cut -d':' -f3- | sed -e 's/\\[space\\]/ /g' -e 's/[A-Z]/U/g' -e's/[a-z]/l/g' -e 's/[0-9]/0/g' -e 's/[[:punct:]]/*/g'  >> ./NTLM-LM-FINAL.potfile;   done < ./NTLM-LM.potfile
+        while read line; do echo -n $line | cut -d ':' -f1 | tr -d '\\n' >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo -n $line | cut -d':' -f2 >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo $line | cut -d':' -f3- | sed -e 's/\\[space\\]/ /g' -e 's/[A-Z]/U/g' -e's/[a-z]/l/g' -e 's/[0-9]/0/g' -e 's/[[:punct:]]/*/g'  >> ./NTLM-LM-FINAL.potfile;   done < ./NTLM-LM.potfile
         `
         } else if(theHCJ.configDetails.redactionValue.redactionLength) {
         userDataString += `
-        while read line; do echo -n \\$line | cut -d ':' -f1 | tr -d '\\n' >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo -n \\$line | cut -d':' -f2 >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo \\$line | cut -d':' -f3- | sed -e 's/\\[space\\]/ /g' -e 's/[A-Z]/*/g' -e's/[a-z]/*/g' -e 's/[0-9]/*/g' -e 's/[[:punct:]]/*/g'  >> ./NTLM-LM-FINAL.potfile;  done < ./NTLM-LM.potfile
+        while read line; do echo -n $line | cut -d ':' -f1 | tr -d '\\n' >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo -n $line | cut -d':' -f2 >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo $line | cut -d':' -f3- | sed -e 's/\\[space\\]/ /g' -e 's/[A-Z]/*/g' -e's/[a-z]/*/g' -e 's/[0-9]/*/g' -e 's/[[:punct:]]/*/g'  >> ./NTLM-LM-FINAL.potfile;  done < ./NTLM-LM.potfile
         `
         } else if(theHCJ.configDetails.redactionValue.redactionFull){ 
         userDataString += `
-        while read line; do echo -n \\$line | cut -d ':' -f1 | tr -d '\\n' >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo -n \\$line | cut -d':' -f2 >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo cracked >> ./NTLM-LM-FINAL.potfile;  done < ./NTLM-LM.potfile
+        while read line; do echo -n $line | cut -d ':' -f1 | tr -d '\\n' >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo -n $line | cut -d':' -f2 >> ./NTLM-LM-FINAL.potfile; echo -n \":\" >> ./NTLM-LM-FINAL.potfile; echo cracked >> ./NTLM-LM-FINAL.potfile;  done < ./NTLM-LM.potfile
         `
         } else {
         userDataString +=`
@@ -2402,21 +2297,21 @@ if(theHCJ.types.includes("NTLMv2")){
     sudo chown ubuntu:ubuntu *.txt
     cat crackedNTLMv2.txt bruteNTLMv2.txt > Cracked-NTLMv2.txt
     cat ./Cracked-NTLMv2.txt | sed -e 's/ /\\[space\\]/g' > ./Cracked-NTLMv2.txt.nospaces
-    while read line; do echo -n \\$(echo \\$line | cut -d':' -f1-6 | tr -d '\\n') >> NTLMv2.potfile; echo -n \":\" >> NTLMv2.potfile; hit=\\$(egrep -l \"^\\$(echo \\$line | cut -d':' -f7- | tr -d '\\n')$\" \\$(find ./SecLists/Passwords/ -iname \"*.txt\") | tr '\\n' ','); if [ \"\\$hit\" != \"\" ]; then echo -n \"\\$hit\" >> NTLMv2.potfile;echo -n \":\" >> NTLMv2.potfile; echo \"\\$(echo \\$line | cut -d':' -f7- | tr -d '\\n')\" >> NTLMv2.potfile; else echo -n \":\" >> NTLMv2.potfile; echo \"\\$(echo \\$line | cut -d':' -f7- | tr -d '\\n')\" >> NTLMv2.potfile; fi; done < ./Cracked-NTLMv2.txt.nospaces
+    while read line; do echo -n $(echo $line | cut -d':' -f1-6 | tr -d '\\n') >> NTLMv2.potfile; echo -n \":\" >> NTLMv2.potfile; hit=$(egrep -l \"^$(echo $line | cut -d':' -f7- | tr -d '\\n')$\" $(find ./SecLists/Passwords/ -iname \"*.txt\") | tr '\\n' ','); if [ \"$hit\" != \"\" ]; then echo -n \"$hit\" >> NTLMv2.potfile;echo -n \":\" >> NTLMv2.potfile; echo \"$(echo $line | cut -d':' -f7- | tr -d '\\n')\" >> NTLMv2.potfile; else echo -n \":\" >> NTLMv2.potfile; echo \"$(echo $line | cut -d':' -f7- | tr -d '\\n')\" >> NTLMv2.potfile; fi; done < ./Cracked-NTLMv2.txt.nospaces
     `
     // At this point we have NTLM-LM.potfile with hash:hit1,hit2,hit3:plaintest or hash::plaintext
     // Handle redaction for NTLM/LM
     if(theHCJ.configDetails.redactionValue.redactionCharacter){
         userDataString += `
-        while read line; do echo -n \\$line | cut -d ':' -f1-6 | tr -d '\\n' >> ./NTLMv2-FINAL.potfile; echo -n \":\" >> ./NTLMv2-FINAL.potfile; echo -n \\$line | cut -d':' -f7 >> ./NTLMv2-FINAL.potfile; echo -n \":\" >> ./NTLMv2-FINAL.potfile; echo \\$line | cut -d':' -f8- | sed -e 's/\\[space\\]/ /g' -e 's/[A-Z]/U/g' -e's/[a-z]/l/g' -e 's/[0-9]/0/g' -e 's/[[:punct:]]/*/g' >> ./NTLMv2-FINAL.potfile;   done < ./NTLMv2.potfile
+        while read line; do echo -n $line | cut -d ':' -f1-6 | tr -d '\\n' >> ./NTLMv2-FINAL.potfile; echo -n \":\" >> ./NTLMv2-FINAL.potfile; echo -n $line | cut -d':' -f7 >> ./NTLMv2-FINAL.potfile; echo -n \":\" >> ./NTLMv2-FINAL.potfile; echo $line | cut -d':' -f8- | sed -e 's/\\[space\\]/ /g' -e 's/[A-Z]/U/g' -e's/[a-z]/l/g' -e 's/[0-9]/0/g' -e 's/[[:punct:]]/*/g' >> ./NTLMv2-FINAL.potfile;   done < ./NTLMv2.potfile
         `
         } else if(theHCJ.configDetails.redactionValue.redactionLength) {
         userDataString += `
-        while read line; do echo -n \\$line | cut -d ':' -f1-6 | tr -d '\\n' >> ./NTLMv2-FINAL.potfile; echo -n \":\" >> ./NTLMv2-FINAL.potfile; echo -n \\$line | cut -d':' -f7 >> ./NTLMv2-FINAL.potfile; echo -n \":\" >> ./NTLMv2-FINAL.potfile; echo \\$line | cut -d':' -f8- | sed -e 's/\\[space\\]/ /g' -e 's/[A-Z]/*/g' -e's/[a-z]/*/g' -e 's/[0-9]/*/g' -e 's/[[:punct:]]/*/g'  >> ./NTLMv2-FINAL.potfile;  done < ./NTLMv2.potfile
+        while read line; do echo -n $line | cut -d ':' -f1-6 | tr -d '\\n' >> ./NTLMv2-FINAL.potfile; echo -n \":\" >> ./NTLMv2-FINAL.potfile; echo -n $line | cut -d':' -f7 >> ./NTLMv2-FINAL.potfile; echo -n \":\" >> ./NTLMv2-FINAL.potfile; echo $line | cut -d':' -f8- | sed -e 's/\\[space\\]/ /g' -e 's/[A-Z]/*/g' -e's/[a-z]/*/g' -e 's/[0-9]/*/g' -e 's/[[:punct:]]/*/g'  >> ./NTLMv2-FINAL.potfile;  done < ./NTLMv2.potfile
         `
         } else if(theHCJ.configDetails.redactionValue.redactionFull){ 
         userDataString += `
-        while read line; do echo -n \\$line | cut -d ':' -f1-6 | tr -d '\\n' >> ./NTLMv2-FINAL.potfile; echo -n \":\" >> ./NTLMv2-FINAL.potfile; echo -n \\$line | cut -d':' -f7 >> ./NTLMv2-FINAL.potfile; echo -n \":\" >> ./NTLMv2-FINAL.potfile; echo cracked >> ./NTLMv2-FINAL.potfile;  done < ./NTLMv2.potfile
+        while read line; do echo -n $line | cut -d ':' -f1-6 | tr -d '\\n' >> ./NTLMv2-FINAL.potfile; echo -n \":\" >> ./NTLMv2-FINAL.potfile; echo -n $line | cut -d':' -f7 >> ./NTLMv2-FINAL.potfile; echo -n \":\" >> ./NTLMv2-FINAL.potfile; echo cracked >> ./NTLMv2-FINAL.potfile;  done < ./NTLMv2.potfile
         `
         } else {
         userDataString +=`
@@ -2447,18 +2342,13 @@ if(theHCJ.types.includes("NTLMv2")){
 userDataString += `
 aws s3 rm s3://${awsSettings.bucketName}/${randomVal}.status
 # Self Terminate on completion
+fi
+
 instanceId=\$(curl http://169.254.169.254/latest/meta-data/instance-id/)
 region=\$(curl http://169.254.169.254/latest/dynamic/instance-identity/document | grep region | awk '{print \$3}' | sed  's/"//g'|sed 's/,//g')
 
 aws ec2 terminate-instances --instance-ids \$(curl http://169.254.169.254/latest/meta-data/instance-id/) --region \$(curl http://169.254.169.254/latest/dynamic/instance-identity/document | grep region | awk '{print \$3}' | sed  's/"//g'|sed 's/,//g')
-fi
-EOF
-
-chmod +x /home/ubuntu/driver-and-hashcat-install.sh
-chown ubuntu:ununtu /home/ubuntu/driver-and-hashcat-install.sh
-
-echo "@reboot ( sleep 15; su -c \"/home/ubuntu/driver-and-hashcat-install.sh\" -s /bin/bash ubuntu )" | crontab -
-sudo reboot`;
+`;
 
             let buff = new Buffer(userDataString);
             let userData = buff.toString('base64');
@@ -2491,7 +2381,9 @@ sudo reboot`;
                   /* more items */
                 ],
               };
+
               let chosenAZ = data.availabilityZone;
+              let chosenRegion = data.availabilityZone.replace(/[a-z]$/g, '')
               ec2.describeImages(params, function(err, data) {
                 if (err) console.log(err, err.stack); // an error occurred
                 else {
@@ -2507,7 +2399,7 @@ sudo reboot`;
                             Arn: `${awsSettings.instanceProfile.Arn}`,
                             }, 
                             // Hardcoded ubuntu 18.04 64bit AMI
-                            ImageId: imageID, 
+                            ImageId: amiMap[chosenRegion],
                             InstanceType: properInstanceType, 
                             Placement: {
                             // Need to send this in data as well...
@@ -2627,12 +2519,34 @@ export function deleteCrackJobs(fileIDArray){
             if(theHCJ.status === 'Job Completed' || theHCJ.status === 'Job Paused' || theHCJ.status.includes("cancelled") || theHCJ.status.includes("Failed")){
                 deleteAllFilesWithPrefix(theHCJ.uuid, s3)
                 HashCrackJobs.remove({"uuid":fileID})
+            } else if(typeof theHCJ.spotInstanceRequest.InstanceId !== 'undefined'){
+                AWS.config.update({region: theHCJ.availabilityZone.replace(/[a-z]$/g, '')});
+                let ec2 = new AWS.EC2()
+                var params = {
+                    InstanceIds: [
+                        theHCJ.spotInstanceRequest.InstanceId
+                    ]
+                };
+                ec2.terminateInstances(params, function(err, data) {
+                    if (err) console.log(err, err.stack); // an error occurred
+                    else {
+                        bound(() => { 
+                            deleteAllFilesWithPrefix(fileID, s3);
+                        })
+                    }
+                });
+                
+            } else {
+                console.log("HERE IN ERROR")
+                console.log(theHCJ.status)
+                throw new Meteor.Error(400,'Unable to Handle Request','The Job is in a state which cannot be cancelleed')
             }
         })
         return true
     }
 }
 
+// TODO - Fix tagging to be more reliable, edge case exists where we're unable to tag...
 export function tagInstance(jobID){
     let creds = AWSCOLLECTION.findOne({type:'creds'})
     if(creds){
@@ -2650,14 +2564,17 @@ export function tagInstance(jobID){
                 job.spotInstanceRequest.InstanceId
            ], 
            Tags: [
-           {
-           Key: "Cryptbreaker", 
-           Value: "Cryptbreaker"
-           }
+            {
+                Key: "Cryptbreaker", 
+                Value: "Cryptbreaker"
+            }
            ]
            };
            ec2.createTags(params, function(err, data) {
-             if (err) console.log(`${err.statusCode},${err.code},${err.message}`); // an error occurred
+             if (err) {
+                 console.log(`${err.statusCode},${err.code},${err.message}`); // an error occurred
+                console.log(`Error tagging ${job.spotInstanceRequest.InstanceId}`)
+                }
              else {
                 bound(() => { HashCrackJobs.update({"_id":job._id},{$set:{'isTagged':true}})})
              }    

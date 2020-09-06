@@ -310,7 +310,6 @@ class CustomToolbarSelect extends React.Component {
     
   };
 
-  //TODO: Update with actual toast vs swal
   handleClickDelete = () => {
     let ids = this.getIdsFromSelection();
     Meteor.call('deleteHashes',ids, (err) =>   {

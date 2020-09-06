@@ -1044,7 +1044,7 @@ class Landing extends React.Component {
             }
           }
           else if(item.spotInstanceRequest.Status.Code === "fulfilled"){
-            item.status = "Upgrading and Installing Necessary Software"
+            item.status = "Launching Instance"
           }
         }
 

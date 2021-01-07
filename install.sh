@@ -26,10 +26,13 @@ BWhite='\033[1;37m'       # White
 
 DEPCHECKFAIL=0
 DEPENDENCIES=(
+	"crontab"
 	"docker"
 	"docker-compose"
-	"git"
+	"wget"
 )
+INSTALL_PATH="$HOME/.cryptbreaker"
+TOOL_NAME="Cryptbreaker"
 
 check_bin_in_path() {
 	dep=$1
@@ -70,23 +73,24 @@ check_dependencies() {
 }
 
 download_files() {
-	echo -e "[${BWhite}.${Color_Off}] Downloading files..."
-	if [[ -d $HOME/.cryptbreaker ]]
+	if [[ -d $INSTALL_PATH ]]
 	then
-		echo -en "[${BYellow}!${Color_Off}] Existing Cryptbreaker folder found. Override? [yN]: " 
+		echo -en "[${BYellow}!${Color_Off}] Existing $TOOL_NAME folder found. Override? [yN]: " 
 		read CHOICE
 		if [[ $CHOICE =~ ^[Yy]$ ]] 
 		then
 			echo -e "[${BWhite}.${Color_Off}] Will replace the existing installation"
-			rm -rf $HOME/.cryptbreaker
+			rm -rf $INSTALL_PATH
 		else
 			echo -e "[${BWhite}.${Color_Off}] Will keep current installation, nothing for installer to do"
 			exit 0
 		fi
 	fi
-	echo ""
-	git clone https://github.com/Sy14r/Cryptbreaker.git $HOME/.cryptbreaker	
-	echo ""
+	mkdir -p $INSTALL_PATH
+	cd $INSTALL_PATH
+	echo -e "[${BWhite}.${Color_Off}] Downloading files..."
+	wget https://raw.githubusercontent.com/Sy14r/Cryptbreaker/main/docker-compose.yml 1>&2 2>/dev/null
+	echo -e "[${BGreen}+${Color_Off}] Download complete."
 }
 
 perform_install() {
@@ -96,20 +100,20 @@ perform_install() {
 	if [[ $CHOICE =~ ^[Yy]$ ]] 
 	then
 		echo -e "[${BWhite}.${Color_Off}] Configuring for nightly auto-update"
-		line="0 0 * * * bash -c \"cd $HOME/.cryptbreaker; docker-compose down; docker-compose pull; docker-compose up -d\""
+		line="0 0 * * * bash -c \"cd $INSTALL_PATH; docker-compose down; docker-compose pull; docker-compose up -d\""
 		(crontab -u $USER -l; echo "$line" ) | crontab -u $USER - 1>&2 2>/dev/null && echo -e "[${BGreen}+${Color_Off}] Autoupdates enabled"
 	else
 		echo -e "[${BWhite}.${Color_Off}] Not modifying cron for autoupdates"
 	fi
-	echo -e "[${BWhite}.${Color_Off}] Starting Cryptbreaker"
+	echo -e "[${BWhite}.${Color_Off}] Starting $TOOL_NAME"
 	echo -e "[${BWhite}.${Color_Off}] Pulling latest images"
-	cd $HOME/.cryptbreaker
+	cd $INSTALL_PATH
 	docker-compose pull &>/dev/null
-	echo -e "[${BWhite}.${Color_Off}] Launching Cryptbreaker"
+	echo -e "[${BWhite}.${Color_Off}] Launching $TOOL_NAME"
 	echo ""
 	docker-compose up -d
 	echo ""
-	echo -e "[${BGreen}+${Color_Off}] Cryptbreaker successfully installed"
+	echo -e "[${BGreen}+${Color_Off}] $TOOL_NAME successfully installed"
 	exit 0
 }
 

@@ -48,8 +48,11 @@ check_member_of_group() {
 	group=$1
 	if [[ ! $(id) =~ .*\($group\).* ]]
 	then
-		echo -e "[${BRed}X${Color_Off}] Please ensure that your account is a member of the ${BBlue}$group${Color_Off} group and then run this installation again" 1>&2
-		DEPCHECKFAIL=1
+	    if [[ ! $(id) =~ .*\(root\).* ]]
+	    then
+		    echo -e "[${BRed}X${Color_Off}] Please ensure that your account is a member of the ${BBlue}$group${Color_Off} group and then run this installation again" 1>&2
+		    DEPCHECKFAIL=1
+        fi
 	fi
 }
 

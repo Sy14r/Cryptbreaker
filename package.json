@@ -22,7 +22,7 @@
     "bcryptjs": "^2.4.3",
     "bootstrap": "^4.3.1",
     "chart.js": "^2.8.0",
-    "jose": "^1.25.0",
+    "jose": "^1.28.1",
     "jquery": "^3.5.0",
     "lodash": "^4.17.20",
     "meteor-node-stubs": "^0.4.1",

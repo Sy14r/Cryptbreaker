@@ -21,7 +21,7 @@
     "aws-sdk": "^2.643.0",
     "bcryptjs": "^2.4.3",
     "bootstrap": "^4.3.1",
-    "chart.js": "^2.8.0",
+    "chart.js": "^2.9.4",
     "jose": "^1.25.0",
     "jquery": "^3.5.0",
     "lodash": "^4.17.20",

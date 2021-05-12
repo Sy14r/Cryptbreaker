@@ -36,7 +36,7 @@
     "react-router-dom": "^5.0.1",
     "react-toastify": "^5.5.0",
     "recompose": "^0.30.0",
-    "simpl-schema": "^1.5.7",
+    "simpl-schema": "^1.10.2",
     "sweetalert2": "^8.17.1",
     "sweetalert2-react-content": "^2.0.2",
     "uniforms": "^2.6.6",
